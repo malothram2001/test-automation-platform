@@ -14,7 +14,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(__file__))  # root: f:\projects\test-
 if BASE_DIR not in sys.path:
     sys.path.append(BASE_DIR)
 
-from tests.test_runner import run_tests_and_get_suggestions
+from tests.test_runner import run_tests_and_get_suggestions, stop_current_tests
 # from gdrive_loader import download_apk, 
 
 app = FastAPI()
@@ -35,6 +35,16 @@ app.add_middleware(
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 os.makedirs(STATIC_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+APKS_DIR = os.path.join(os.path.dirname(__file__), "temp_apks")
+os.makedirs(APKS_DIR, exist_ok=True)
+
+class ExistingTestRequest(BaseModel):
+    apk_name: str
+
+class LogMessage(BaseModel):
+    message: str
+    status: str = "INFO"
 
 # 1. Connection Manager for WebSockets
 class ConnectionManager:
@@ -85,9 +95,15 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # 3. The "Loopback" Endpoint (Pytest calls this)
 @app.post("/api/log-step")
-async def log_step(data: dict):
+async def log_step(msg: LogMessage):
     # Broadcast log to UI immediately
-    await manager.broadcast({"type": "LOG", "payload": data})
+    await manager.broadcast({
+        "type": "LOG",
+        "payload": {
+            "message": msg.message,
+            "status": msg.status,
+        }
+    })
     return {"status": "ok"}
 
 # 4. The "Profiler" Endpoint (Sidecar calls this)
@@ -162,6 +178,90 @@ async def start_test(request: TestRequest, background_tasks: BackgroundTasks):
             "payload": {"message": f"Download failed: {str(e)}", "status": "FAILED"}
         })
         raise HTTPException(status_code=400, detail=f"Download Failed: {str(e)}")
+
+@app.post("/start-test-existing")
+async def start_test_existing(request: ExistingTestRequest, background_tasks: BackgroundTasks):
+    """
+    Start tests using an already-downloaded APK in backend/temp_apks.
+    """
+    try:
+        apk_path = os.path.join(APKS_DIR, request.apk_name)
+
+        if not os.path.isfile(apk_path):
+            raise HTTPException(status_code=404, detail="APK not found on server")
+
+        await manager.broadcast({
+            "type": "LOG",
+            "payload": {
+                "message": f"Using existing APK: {request.apk_name}",
+                "status": "INFO",
+            }
+        })
+
+        # Extract icon / app info
+        icon_url = extract_app_icon(apk_path)
+        full_icon_url = f"http://localhost:8000{icon_url}" if icon_url else None
+
+        info = get_apk_info(apk_path) or {}
+        app_name = info.get("app_name")
+        package_name = info.get("package_name")
+
+        # Run tests in background
+        background_tasks.add_task(run_tests_and_get_suggestions, apk_path)
+
+        return {
+            "status": "success",
+            "message": "Using existing APK. Test Starting...",
+            "app_icon": full_icon_url,
+            "app_name": app_name,
+            "package_name": package_name,
+            "apk_path": apk_path,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        await manager.broadcast({
+            "type": "LOG",
+            "payload": {"message": f"Failed to start test: {str(e)}", "status": "FAILED"}
+        })
+        raise HTTPException(status_code=400, detail=f"Failed: {str(e)}")
+    
+@app.get("/api/apk-list")
+async def list_apks():
+    """
+    Return list of already-downloaded APK files from backend/temp_apks.
+    """
+    try:
+        files = []
+        for name in os.listdir(APKS_DIR):
+            if name.lower().endswith((".apk", ".apks")):
+                files.append(name)
+        return {"apks": files}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/stop-test")
+async def stop_test():
+    """
+    Stop the currently running pytest process (if any).
+    Called by the frontend Stop Test button.
+    """
+    print("DEBUG: /stop-test called") 
+    stopped = stop_current_tests()
+    print(f"DEBUG: stop_current_tests() -> {stopped}")
+
+    if stopped:
+        await manager.broadcast({
+            "type": "LOG",
+            "payload": {
+                "message": "Backend: test process stopped on user request.",
+                "status": "FAILED",
+            }
+        })
+        return {"status": "stopped"}
+    else:
+        return {"status": "no-process"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

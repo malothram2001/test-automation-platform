@@ -35,10 +35,10 @@ def tap_at_coordinates(driver, x, y):
         # 4. Execute the entire sequence of actions.
         actions.perform()
         
-        print(f"✅ Successfully tapped at (x={x}, y={y}).")
+        print(f"Successfully tapped at (x={x}, y={y}).")
         allure.attach(f"Tapped at coordinates (x={x}, y={y})", name="Coordinate Tap", attachment_type=allure.attachment_type.TEXT)
         return True
     except Exception as e:
-        print(f"❌ Failed to tap at coordinates: {e}")
+        print(f"Failed to tap at coordinates: {e}")
         allure.attach(f"Failed to tap at (x={x}, y={y}): {e}", name="Coordinate Tap Error", attachment_type=allure.attachment_type.TEXT)
         return False

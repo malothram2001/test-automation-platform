@@ -23,12 +23,12 @@ def driver(request):
     apk_path = request.config.getoption("--apk")
 
     if not apk_path:
-        pytest.fail("❌ No APK path provided! Backend must call pytest with --apk=/path/to/app.apk")
+        pytest.fail("No APK path provided! Backend must call pytest with --apk=/path/to/app.apk")
 
     if not os.path.exists(apk_path):
-        pytest.fail(f"❌ APK file not found at: {apk_path}")
+        pytest.fail(f"APK file not found at: {apk_path}")
 
-    print(f"🚀 Initializing Appium with APK: {apk_path}")
+    print(f"Initializing Appium with APK: {apk_path}")
 
     options = UiAutomator2Options()
     options.platform_name = "Android"

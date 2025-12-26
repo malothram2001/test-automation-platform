@@ -75,11 +75,63 @@ os.environ["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
 import pytest
 import allure_pytest  # pip install allure-pytest
 import requests
+import subprocess
 from dotenv import load_dotenv
+from typing import Optional
 
 load_dotenv()
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+CURRENT_PROC: Optional[subprocess.Popen] = None
+
+def send_log(message: str, status: str = "INFO") -> None:
+    """Send one log line to the frontend via /api/log-step."""
+    try:
+        requests.post(
+            f"{BACKEND_URL}/api/log-step",
+            json={"message": message, "status": status},
+            timeout=3,
+        )
+    except Exception:
+        # Don't break tests if backend logging fails
+        pass
+
+def run_pytest_with_logs(pytest_args, module_name: str) -> bool:
+  """
+  Run pytest in a subprocess and stream all stdout lines
+  into the WebSocket log console.
+  """
+  send_module_status(module_name, "running", f"Starting {module_name} tests")
+  send_log(f"==== Running {module_name} tests ====", "INFO")
+
+  # Build command: python -m pytest <args>
+  cmd = [os.sys.executable, "-m", "pytest"] + pytest_args
+
+  proc = subprocess.Popen(
+    cmd,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+    bufsize=1,
+    cwd=os.path.dirname(os.path.dirname(__file__)),  # project root
+  )
+
+  # Stream each line to frontend
+  assert proc.stdout is not None
+  for line in proc.stdout:
+    send_log(line.rstrip("\n"), "INFO")
+
+  proc.wait()
+  success = (proc.returncode == 0)
+
+  if success:
+    send_module_status(module_name, "completed", f"{module_name} tests passed")
+    send_log(f"{module_name} tests passed", "SUCCESS")
+  else:
+    send_module_status(module_name, "failed", f"{module_name} tests failed")
+    send_log(f"{module_name} tests failed", "FAILED")
+
+  return success
 
 def send_module_status(module: str, status: str, message: str = ""):
     """Notify backend which module is running/completed."""
@@ -93,53 +145,105 @@ def send_module_status(module: str, status: str, message: str = ""):
         # Do not break tests if backend is down
         pass
 
-def run_tests_and_get_suggestions(apk_path: str):
-    print(f"[test_runner] Running tests for APK: {apk_path}")
+def stop_current_tests() -> bool:
+    """
+    Try to stop the currently running pytest process.
+    Returns True if a process was stopped, False otherwise.
+    """
+    global CURRENT_PROC
+    if CURRENT_PROC is None:
+        return False
 
+    try:
+        send_log("Stopping tests on user request...", "FAILED")
+        CURRENT_PROC.terminate()
+        try:
+            CURRENT_PROC.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            CURRENT_PROC.kill()
+        send_log("Test process terminated.", "FAILED")
+    except Exception as e:
+        send_log(f"Error while stopping tests: {e}", "FAILED")
+    finally:
+        CURRENT_PROC = None
+
+    return True
+
+def run_pytest_streaming(pytest_args: list[str], module_name: str) -> bool:
+    global CURRENT_PROC
+    """
+    Run pytest in a subprocess and stream ALL stdout lines
+    to the frontend log console.
+    """
+    project_root = os.path.dirname(os.path.dirname(__file__))
+    cmd = ["pytest", "-s", "-vv"] + pytest_args
+
+    send_module_status(module_name, "running", f"Starting {module_name} tests")
+    send_log(f"==== Running {module_name} tests ====", "INFO")
+
+    # cmd = [os.sys.executable, "-m", "pytest"] + pytest_args
+
+    CURRENT_PROC = subprocess.Popen(
+        cmd,
+        cwd=project_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    proc = CURRENT_PROC
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        # Mirror exactly what you see in the terminal
+        send_log(line.rstrip("\n"), "INFO")
+
+    proc.wait()
+    ok = proc.returncode == 0
+
+    # Clear global when done
+    CURRENT_PROC = None
+
+    if ok:
+        send_module_status(module_name, "completed", f"{module_name} tests passed")
+        send_log(f"{module_name} tests passed", "SUCCESS")
+    else:
+        send_module_status(module_name, "failed", f"{module_name} tests failed")
+        send_log(f"{module_name} tests failed", "FAILED")
+
+    return ok
+
+def run_tests_and_get_suggestions(apk_path: str) -> None:
+    """
+    Entry point called from FastAPI (background task).
+    Streams full pytest output to the frontend.
+    """
     if not os.path.exists(apk_path):
-        print(f"❌ Error: APK not found at {apk_path}")
+        send_log(f"APK not found at {apk_path}", "FAILED")
         return
 
-    project_root = os.path.dirname(os.path.dirname(__file__))
-    os.chdir(project_root)
-
-    # Allure results under tests/
-    allure_dir = os.path.join("tests", "allure-results")
-    if os.path.exists(allure_dir):
-        shutil.rmtree(allure_dir)
-    os.makedirs(allure_dir, exist_ok=True)
-
-    # Tell allure-pytest where to write results (no --alluredir needed)
-    os.environ["ALLURE_RESULTS_DIR"] = os.path.abspath(allure_dir)
-
-    os.makedirs("screenshots", exist_ok=True)
+    send_log(f"Running tests for APK: {apk_path}", "INFO")
 
     overall_ok = True
 
-    # ---------- Login module ----------
-    send_module_status("Login", "running", "Starting Login tests")
-
-    result_login = pytest.main(
-        [
-            "tests/test_cases/test_login_pytest.py",
-            f"--apk={apk_path}",
-            "-v",
-        ],
-        plugins=[allure_pytest],
+    # Adjust test paths to match your repo
+    login_ok = run_pytest_streaming(
+        ["tests/test_cases/test_login_pytest.py", f"--apk={apk_path}", "-v"],
+        module_name="Login",
     )
+    overall_ok = overall_ok and login_ok
 
-    if result_login == 0:
-        send_module_status("Login", "completed", "Login tests passed")
-    else:
-        send_module_status("Login", "failed", "Login tests failed")
-        overall_ok = False
+    # Example second module – change path/name if you have different modules
+    # onboarding_ok = run_pytest_streaming(
+    #     ["tests/test_cases/test_onboarding_pytest.py", f"--apk={apk_path}", "-v"],
+    #     module_name="Onboarding",
+    # )
+    # overall_ok = overall_ok and onboarding_ok
 
     if overall_ok:
-        print("✅ All modules passed")
+        send_log("All modules passed", "SUCCESS")
     else:
-        print("⚠️ Some modules failed")
-
-    print(f"\nTo view the detailed test report, run:\n  allure serve {allure_dir}")
+        send_log("Some modules failed", "FAILED")
 
     # Define paths
     # test_files = [

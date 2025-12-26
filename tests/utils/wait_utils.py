@@ -31,10 +31,10 @@ def find_and_click(driver, by, value, fallback_text=None, timeout=20):
             EC.element_to_be_clickable((by, value))
         )
         element.click()
-        print("✅ Click successful using primary locator.")
+        print("Click successful using primary locator.")
         return True
     except TimeoutException:
-        print(f"❌ Primary locator failed. Trying fallback text: '{fallback_text}'")
+        print(f"Primary locator failed. Trying fallback text: '{fallback_text}'")
         
         # 2. If primary locator fails, try the fallback text
         if fallback_text:
@@ -47,10 +47,10 @@ def find_and_click(driver, by, value, fallback_text=None, timeout=20):
                     EC.element_to_be_clickable((AppiumBy.XPATH, fallback_xpath))
                 )
                 element.click()
-                print("✅ Click successful using fallback text.")
+                print("Click successful using fallback text.")
                 return True
             except TimeoutException:
-                print(f"❌ Fallback text '{fallback_text}' also failed.")
+                print(f"Fallback text '{fallback_text}' also failed.")
                 return False
 
     return False
@@ -68,7 +68,7 @@ def smart_find_element(driver, name, xpath, fallback_text=None, screenshot_path=
         )
         return element, False
     except:
-        print(f"[❌] Element '{name}' not found via XPath. Trying OCR fallback...")
+        print(f"Element '{name}' not found via XPath. Trying OCR fallback...")
 
         # Take screenshot
         driver.save_screenshot(screenshot_path)
@@ -77,10 +77,10 @@ def smart_find_element(driver, name, xpath, fallback_text=None, screenshot_path=
         if fallback_text:
             found = click_element_by_ocr_text(driver, fallback_text, screenshot_path)
             if found:
-                print(f"[✅] OCR clicked on '{fallback_text}' successfully.")
+                print(f"OCR clicked on '{fallback_text}' successfully.")
                 return None, True  # Indicate OCR was used
             else:
-                print(f"[⚠️] OCR failed to find '{fallback_text}' on screen.")
+                print(f"OCR failed to find '{fallback_text}' on screen.")
 
         return None, False
     
@@ -98,7 +98,7 @@ def scroll_and_click_by_text_robust(driver, text_to_find, max_swipes=5):
             # --- THE CRITICAL LOGIC ---
             # Check if the element itself is clickable. If not, find its ancestor.
             if text_element.get_attribute('clickable') == 'true':
-                print(f"✅ Text element '{text_to_find}' is directly clickable. Clicking it.")
+                print(f"Text element '{text_to_find}' is directly clickable. Clicking it.")
                 text_element.click()
                 return True
             else:
@@ -107,7 +107,7 @@ def scroll_and_click_by_text_robust(driver, text_to_find, max_swipes=5):
                 parent_xpath = f"({element_xpath})/ancestor::*[@clickable='true']"
                 clickable_parent = driver.find_element(AppiumBy.XPATH, parent_xpath)
                 
-                print("✅ Found a clickable parent. Clicking it.")
+                print("Found a clickable parent. Clicking it.")
                 clickable_parent.click()
                 return True
 
@@ -120,7 +120,7 @@ def scroll_and_click_by_text_robust(driver, text_to_find, max_swipes=5):
             end_y = size['height'] * 0.2
             driver.swipe(start_x, start_y, start_x, end_y, 400)
 
-    print(f"❌ Failed to find or click '{text_to_find}' after {max_swipes} swipes.")
+    print(f"Failed to find or click '{text_to_find}' after {max_swipes} swipes.")
     return False
 
 def scroll_and_tap_by_text(driver, text_to_find, max_swipes=5):
@@ -149,7 +149,7 @@ def scroll_and_tap_by_text(driver, text_to_find, max_swipes=5):
             center_x = location['x'] + size['width'] / 2
             center_y = location['y'] + size['height'] / 2
             
-            print(f"✅ Found '{text_to_find}'. Tapping at dynamic coordinates: ({center_x}, {center_y})")
+            print(f"Found '{text_to_find}'. Tapping at dynamic coordinates: ({center_x}, {center_y})")
             allure.attach(f"Tapping '{text_to_find}' on {driver.capabilities.get('deviceName')} at ({center_x}, {center_y})", 
                           name="Dynamic Coordinate Tap", attachment_type=allure.attachment_type.TEXT)
             
@@ -188,7 +188,7 @@ def scroll_and_tap_by_text(driver, text_to_find, max_swipes=5):
                 
             else:
                 # This is the last swipe attempt, and it still wasn't found.
-                print(f"❌ Could not find element '{text_to_find}' after {max_swipes} swipes.")
+                print(f"Could not find element '{text_to_find}' after {max_swipes} swipes.")
                 return False
                 
     return False

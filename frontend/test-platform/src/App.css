@@ -64,7 +64,7 @@ body {
 /* --- Layout --- */
 .app-container {
   min-height: 100vh;
-  padding: 2rem;
+  padding: 0rem 2rem;
   box-sizing: border-box;
 }
 
@@ -119,8 +119,8 @@ body {
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--border-color);
-  padding-bottom: 1rem;
-  margin-bottom: 2rem;
+  /* padding-bottom: 1rem; */
+  margin-bottom: 1rem;
 }
 
 .brand-title {
@@ -269,6 +269,23 @@ body {
   display: flex;
   flex-direction: column;
   font-family: 'Courier New', Courier, monospace;
+}
+.console-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.log-search {
+  margin-bottom: 0.5rem;
+}
+
+.log-search .text-input {
+  width: 200px; /* adjust as you like */
+}
+.log-line-highlight {
+  background-color: rgba(56, 189, 248, 0.15); /* soft cyan highlight */
+  border-left: 3px solid #38bdf8;
 }
 
 .console-header {

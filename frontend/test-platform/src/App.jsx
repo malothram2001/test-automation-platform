@@ -108,23 +108,67 @@ const MetricsChart = ({ data }) => {
 // --- COMPONENT: Log Console ---
 const LogConsole = ({ logs }) => {
   const endRef = useRef(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs]);
+    // Auto-scroll only when not searching
+    if (!searchTerm) {
+      endRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logs, searchTerm]);
+
+  const filteredLogs = logs.filter((log) => {
+    if (!searchTerm) return true;
+    const q = searchTerm.toLowerCase();
+    return (
+      log.message.toLowerCase().includes(q) ||
+      log.type.toLowerCase().includes(q) ||
+      String(log.time).toLowerCase().includes(q)
+    );
+  });
+
+  const normalizedSearch = searchTerm.toLowerCase().trim();
+
+  const matchesSearch = (log) => {
+    if (!normalizedSearch) return false;
+    return (
+      log.message.toLowerCase().includes(normalizedSearch) ||
+      log.type.toLowerCase().includes(normalizedSearch) ||
+      String(log.time).toLowerCase().includes(normalizedSearch)
+    );
+  };
 
   return (
     <div className="log-console">
-      <h3 className="console-header">
-        <Terminal size={14} /> LIVE LOGS CONSOLE
-      </h3>
+      <div className="console-header-row">
+        <h3 className="console-header">
+          <Terminal size={14} /> LIVE LOGS CONSOLE
+        </h3>
+        {/* Search bar */}
+        <div className="log-search">
+          <input
+            type="text"
+            placeholder="Search logs..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="text-input"
+          />
+        </div>
+      </div>
       <div className="console-body">
-        {logs.map((log, i) => (
-          <div key={i} className={`log-line ${log.type.toLowerCase()}`}>
-            <span className="timestamp">[{log.time}]</span>
-            <span className="message">{log.message}</span>
-          </div>
-        ))}
+        {logs.map((log, i) => {
+          const isMatch = matchesSearch(log);
+          return (
+            <div
+              key={i}
+              className={`log-line ${log.type.toLowerCase()} ${isMatch ? 'log-line-highlight' : ''
+                }`}
+            >
+              <span className="timestamp">[{log.time}]</span>
+              <span className="message">{log.message}</span>
+            </div>
+          );
+        })}
         <div ref={endRef} />
       </div>
     </div>
@@ -144,9 +188,11 @@ function App() {
   const [modules, setModules] = useState([
     { name: 'Login', status: 'pending' },
     { name: 'Dashboard', status: 'pending' },
-    { name: 'Onboarding', status: 'pending' },
+    // { name: 'Onboarding', status: 'pending' },
     { name: 'Add farmer updates', status: 'pending' },
   ]);
+  const [existingApks, setExistingApks] = useState([]);
+  const [selectedApk, setSelectedApk] = useState('');
 
   const updateModuleStatus = (moduleName, newStatus) => {
     setModules(prev =>
@@ -244,32 +290,47 @@ function App() {
 
 
   const handleRunTest = async () => {
-    if (!apkUrl) {
+    if (!apkUrl && !selectedApk) {
       alert("Please enter a Google Drive URL first!");
       return;
     }
     setModules(prev => prev.map(m => ({ ...m, status: 'pending' }))); // reset
 
     setIsRunning(true);
-    setIsDownloading(true);
+    setIsDownloading(!!apkUrl);
     setLogs([]); // Clear old logs
     setMetrics([]); // Clear old metrics
 
     // 1. Show immediate feedback in UI logs
     handleIncomingData({
       type: 'LOG',
-      payload: { message: "Initializing test request...", status: 'INFO' }
+      payload: {
+        message: selectedApk
+          ? `Initializing test with existing APK: ${selectedApk}`
+          : "Initializing test request...",
+        status: 'INFO'
+      }
     });
 
+
     try {
-      // 2. Send the URL to the Python Backend
-      const response = await fetch('http://localhost:8000/start-test', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url: apkUrl }),
-      });
+      let response;
+
+      if (selectedApk) {
+        // Use existing APK on backend
+        response = await fetch('http://localhost:8000/start-test-existing', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apk_name: selectedApk }),
+        });
+      } else {
+        // Download from URL as before
+        response = await fetch('http://localhost:8000/start-test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: apkUrl }),
+        });
+      }
 
       const data = await response.json();
 
@@ -305,6 +366,48 @@ function App() {
     }
   };
 
+  const handleStopTest = async () => {
+    // Tell backend to stop (implement /stop-test there)
+    try {
+      await fetch('http://localhost:8000/stop-test', {
+        method: 'POST'
+      });
+      const data = await res.json();
+      console.log('stop-test response:', data);
+
+      // Optional: show result in logs
+      handleIncomingData({
+        type: 'LOG',
+        payload: {
+          message: `Stop-test backend response: ${JSON.stringify(data)}`,
+          status: data.status === 'stopped' ? 'INFO' : 'FAILED'
+        }
+      });
+    } catch (e) {
+      console.error('Error calling /stop-test:', e);
+    }
+
+    // Immediately update UI
+    setIsRunning(false);
+    setIsDownloading(false);
+
+    // Mark any running modules as failed/stopped
+    setModules(prev =>
+      prev.map(m =>
+        m.status === 'running' ? { ...m, status: 'failed' } : m
+      )
+    );
+
+    // Log stop event
+    handleIncomingData({
+      type: 'LOG',
+      payload: {
+        message: 'Test run stopped by user.',
+        status: 'FAILED'
+      }
+    });
+  };
+
   // Poll device status every 5s
   useEffect(() => {
     const checkDevice = async () => {
@@ -319,6 +422,35 @@ function App() {
     checkDevice();
     const id = setInterval(checkDevice, 5000);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const checkDevice = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/device-status');
+        const data = await res.json();
+        setIsDeviceConnected(!!data.connected);
+      } catch (e) {
+        setIsDeviceConnected(false);
+      }
+    };
+    checkDevice();
+    const id = setInterval(checkDevice, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Load list of existing APKs once
+  useEffect(() => {
+    const loadApks = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/api/apk-list');
+        const data = await res.json();
+        setExistingApks(data.apks || []);
+      } catch (e) {
+        // ignore errors
+      }
+    };
+    loadApks();
   }, []);
   // const simulateTest = () => {
   //   let tick = 0;
@@ -384,7 +516,11 @@ function App() {
               type="text"
               placeholder="Paste Google Drive Link (APK Source)"
               value={apkUrl}
-              onChange={(e) => setApkUrl(e.target.value)}
+              // onChange={(e) => setApkUrl(e.target.value)}
+              onChange={(e) => {
+                setApkUrl(e.target.value);
+                if (e.target.value) setSelectedApk('');
+              }}
               className="text-input"
             />
             <button
@@ -398,6 +534,36 @@ function App() {
                 : (isRunning ? 'Testing...' : 'Run Test')}
               {isDownloading && <span className="loader" />}
             </button>
+            {/* New: Stop button */}
+            {isRunning && (
+              <button
+                onClick={handleStopTest}
+                disabled={!isRunning}
+                className="run-button stop-button"
+                style={{ marginLeft: '0.5rem' }}
+              >
+                Stop Test
+              </button>
+            )}
+
+          </div>
+          {/* New: select an existing APK */}
+          <div className="input-group" style={{ marginTop: '0.75rem' }}>
+            <select
+              className="text-input"
+              value={selectedApk}
+              onChange={(e) => {
+                setSelectedApk(e.target.value);
+                if (e.target.value) setApkUrl('');
+              }}
+            >
+              <option value="">Or select existing APK on server...</option>
+              {existingApks.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
