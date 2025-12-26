@@ -110,12 +110,12 @@ const LogConsole = ({ logs }) => {
   const endRef = useRef(null);
   const [searchTerm, setSearchTerm] = useState('');
 
-  useEffect(() => {
-    // Auto-scroll only when not searching
-    if (!searchTerm) {
-      endRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [logs, searchTerm]);
+  // useEffect(() => {
+  //   // Auto-scroll only when not searching
+  //   if (!searchTerm) {
+  //     endRef.current?.scrollIntoView({ behavior: "smooth" });
+  //   }
+  // }, [logs, searchTerm]);
 
   const filteredLogs = logs.filter((log) => {
     if (!searchTerm) return true;
@@ -193,7 +193,8 @@ function App() {
   ]);
   const [existingApks, setExistingApks] = useState([]);
   const [selectedApk, setSelectedApk] = useState('');
-
+  const reportWindowRef = useRef(null);
+  const [hasOpenedReport, setHasOpenedReport] = useState(false);
   const updateModuleStatus = (moduleName, newStatus) => {
     setModules(prev =>
       prev.map(m =>
@@ -211,6 +212,12 @@ function App() {
       handleIncomingData(data);
     }
   });
+
+  const openOrNavigateReport = (url) => {
+    if (!url || hasOpenedReport) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+    setHasOpenedReport(true);
+  };
 
   const handleIncomingData = (data) => {
     if (data.type === 'LOG') {
@@ -285,11 +292,21 @@ function App() {
           ]);
         }
       }
+    } else if (data.type === 'RUN_COMPLETE') {
+      openOrNavigateReport(data.payload?.report_url);
     }
   };
 
 
   const handleRunTest = async () => {
+    setHasOpenedReport(false);
+    // Pre-open a tab to avoid popup blockers
+    // reportWindowRef.current = window.open('about:blank', '_blank');
+    // if (reportWindowRef.current) {
+    //   reportWindowRef.current.document.title = "Allure Report";
+    //   reportWindowRef.current.document.body.innerHTML = "<p>Generating Allure report... Please wait.</p>";
+    // }
+
     if (!apkUrl && !selectedApk) {
       alert("Please enter a Google Drive URL first!");
       return;
@@ -573,9 +590,9 @@ function App() {
         </div>
 
         {/* Panel 3: Live Metrics */}
-        <div className="grid-item-chart">
+        {/* <div className="grid-item-chart">
           <MetricsChart data={metrics} />
-        </div>
+        </div> */}
 
         {/* Panel 4: Logs */}
         <div className="grid-item-logs">

@@ -4,9 +4,12 @@ import sys
 from fastapi import FastAPI, WebSocket, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 import uvicorn
 from pydantic import BaseModel
 import subprocess
+import socket
+import asyncio
 from gdrive_loader import download_apk, extract_app_icon, get_apk_info
 
 # Add project root to sys.path so we can import tests.*
@@ -16,6 +19,7 @@ if BASE_DIR not in sys.path:
 
 from tests.test_runner import run_tests_and_get_suggestions, stop_current_tests
 # from gdrive_loader import download_apk, 
+
 
 app = FastAPI()
 
@@ -38,6 +42,53 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 APKS_DIR = os.path.join(os.path.dirname(__file__), "temp_apks")
 os.makedirs(APKS_DIR, exist_ok=True)
+
+# Serve generated Allure report (will be created by test_runner)
+ALLURE_REPORT_DIR = os.path.join(BASE_DIR, "allure-report")
+os.makedirs(ALLURE_REPORT_DIR, exist_ok=True)
+app.mount("/allure-report", StaticFiles(directory=ALLURE_REPORT_DIR, html=True), name="allure-report")
+
+_allure_proc: subprocess.Popen | None = None
+_allure_port: int | None = None
+
+ALLURE_CMD = r"C:\Users\Pramo\scoop\shims\allure"
+
+def _start_allure_server() -> str:
+    """
+    Starts (or restarts) `allure open` server for the generated allure-report folder.
+    Returns the URL the frontend should open.
+    Requires: Allure CLI installed and in PATH.
+    """
+    global _allure_proc, _allure_port
+
+    if not os.path.isdir(ALLURE_REPORT_DIR):
+        raise HTTPException(status_code=404, detail=f"Allure report dir not found: {ALLURE_REPORT_DIR}")
+
+    # Kill previous server if running
+    if _allure_proc is not None and _allure_proc.poll() is None:
+        try:
+            _allure_proc.terminate()
+        except Exception:
+            pass
+        _allure_proc = None
+
+    _allure_port = _pick_free_port()
+
+    # Start Allure server
+    # (Allure CLI: `allure open -h <host> -p <port> <report_dir>`)
+    _allure_proc = subprocess.Popen(
+        ["allure", "open", "-h", "127.0.0.1", "-p", str(_allure_port), ALLURE_REPORT_DIR],
+        cwd=BASE_DIR,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+    )
+
+    return f"http://127.0.0.1:{_allure_port}"
+
+
+class RunCompleteEvent(BaseModel):
+    report_url: str
 
 class ExistingTestRequest(BaseModel):
     apk_name: str
@@ -63,6 +114,36 @@ class TestRequest(BaseModel):
     url: str
 
 manager = ConnectionManager()
+
+@app.post("/api/run-complete")
+async def run_complete(event: RunCompleteEvent):
+    # Push an explicit event so frontend can react
+    await manager.broadcast({
+        "type": "RUN_COMPLETE",
+        "payload": {"report_url": event.report_url}
+    })
+    return {"ok": True}
+
+def _pick_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+@app.post("/api/allure/start")
+async def allure_start():
+    """
+    Start Allure server (allure open) and return the URL.
+    """
+    port = _pick_free_port()
+    subprocess.Popen(
+        [ALLURE_CMD, "open", "-h", "127.0.0.1", "-p", str(port), ALLURE_REPORT_DIR],
+        cwd=BASE_DIR,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        shell=True
+    )
+    url = f"http://127.0.0.1:{port}"
+    return JSONResponse({"url": url})
 
 @app.get("/device-status")
 async def device_status():
