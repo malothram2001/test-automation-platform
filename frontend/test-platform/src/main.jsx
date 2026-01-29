@@ -8,5 +8,4 @@ createRoot(document.getElementById('root')).render(
     <App />
   </StrictMode>,
 )
-// hii ram
-// hell0 pramod 
+

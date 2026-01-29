@@ -247,7 +247,7 @@ def run_tests_and_get_suggestions(apk_path: str) -> None:
 
     # First module: clean allure-results once at the start
     login_ok = run_pytest_streaming(
-        ["tests/test_cases/test_login_pytest.py", f"--apk={apk_path}", "-v"],
+        ["tests/test_cases/regular_client_app/test_login_pytest.py", f"--apk={apk_path}", "-v"],
         module_name="Login",
         clean_allure=True,
     )
