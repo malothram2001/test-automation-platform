@@ -29,7 +29,7 @@ def _generate_and_open_allure_report(project_root: str) -> None:
     """
     Generates and opens Allure HTML report.
     """
-    allure_cmd = r"C:\Users\Pramo\scoop\shims\allure"
+    allure_cmd = r"C:\Users\ram\scoop\shims\allure"
     try:
         send_log("Generating Allure HTML report...", "INFO")
         subprocess.run(
@@ -269,7 +269,7 @@ def run_tests_and_get_suggestions(apk_path: str) -> None:
     _generate_and_open_allure_report(project_root)
 
     # Tell backend to start Allure server and broadcast RUN_COMPLETE (frontend opens it)
-    notify_allure_open()
+    # notify_allure_open()
 
 if __name__ == "__main__":
     # run_tests_and_get_suggestions()

@@ -22,12 +22,20 @@
 
     
   },
-  "dashboard_screen": {
-    "dashboard_title": "//android.widget.TextView[@text='Dashboard']",
-    "my_active_farms": "//android.widget.TextView[@text=\"My Active Farms\"]",
-    "my_historical_farms": "//android.widget.TextView[@text=\"My Historical Farms\"]",
-    "my_crops": "//android.widget.TextView[@text=\"My Crops\"]",
-    "add_farm": "//android.widget.TextView[@text=\"Add Farm\"]"
+  
+    "dashboard_screen": {
+        "add_button_dashboard": "//android.view.ViewGroup[@content-desc=\"Add\"]",
+        "add_new_farmer_option": "//android.view.ViewGroup[@content-desc=\"Add New Farmer\"]/android.view.ViewGroup"
+    },
+
+    "farmer_screen": {
+        "farmer_name_input": "//android.widget.EditText[@content-desc=\"Farmer Name input field, mandatory\"]",
+        "farmer_mobile_input": "//android.widget.EditText[@content-desc=\"Phone Number input field, mandatory\"]",
+        "business_unit_dropdown": "//android.widget.Button[@content-desc=\"Business Unit dropdown\"]",
+        "business_unit_option_1": "//android.widget.TextView[contains(@text, 'Testteam')]",
+        "field_agent_dropdown": "//android.widget.Button[@content-desc=\"Field Agent dropdown\"]",
+        "field_agent_option_1": "//android.widget.TextView[contains(@text, 'bu1 fa1')]",
+        "submit_farmer_button": "//android.view.ViewGroup[@content-desc=\"Submit\"]"
   },
   "determine_boundary_modal": {
     "take_selfie_button": "//android.widget.TextView[@text=\"Take Selfie\"]",

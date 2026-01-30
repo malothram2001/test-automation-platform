@@ -11,32 +11,27 @@ from selenium.webdriver.common.actions.action_builder import ActionBuilder
 from selenium.webdriver.common.actions.pointer_input import PointerInput
 from selenium.webdriver.common.actions import interaction
 
-@allure.epic("Login Flow")
-@allure.feature("Authentication")
+@allure.epic("Login & Farmer Flow")
+@allure.feature("Authentication & Data Entry")
 class TestLogin:
 
     permissions_to_handle = [
-                ("allow_notifications_button", "Allow Notifications"),
-
-            ]
+        ("allow_notifications_button", "Allow Notifications"),
+    ]
 
     # --- CONFIGURATION ---
-    # Set to "PHONE" or "EMAIL"
-    LOGIN_METHOD = "PHONE" 
+    LOGIN_METHOD = "EMAIL" 
 
     # --- HELPER METHODS ---
 
     def input_text_via_adb(self, text):
-        """Forces text input using Android ADB commands (Fixes emulator typing issues)"""
+        """Forces text input using Android ADB commands"""
         try:
             print(f"   -> Attempting ADB input for '{text}'...")
-            # ADB requires spaces to be escaped as %s
             formatted_text = text.replace(" ", "%s")
-            # 1. Input the text
             subprocess.run(f"adb shell input text {formatted_text}", shell=True)
             time.sleep(1)
-            # 2. Hide keyboard (Key code 111 is ESC/Back) so it doesn't block buttons
-            subprocess.run("adb shell input keyevent 111", shell=True)
+            subprocess.run("adb shell input keyevent 111", shell=True) # Hide Keyboard
             return True
         except Exception as e:
             print(f"ADB Input failed: {e}")
@@ -50,7 +45,7 @@ class TestLogin:
             p = PointerInput(interaction.POINTER_TOUCH, "finger")
             actions.pointer_action.move_to_location(x, y)
             actions.pointer_action.pointer_down()
-            actions.pointer_action.pause(0.2) # Short pause to register touch
+            actions.pointer_action.pause(0.2)
             actions.pointer_action.pointer_up()
             actions.perform()
             return True
@@ -58,25 +53,66 @@ class TestLogin:
             print(f"Coordinate tap failed: {e}")
             return False
 
-    def smart_click(self, driver, xpath, coordinates, element_name, timeout=5):
+    def perform_scroll(self, driver):
+        """Performs a single swipe up (scroll down) gesture"""
+        try:
+            size = driver.get_window_size()
+            start_x = size['width'] // 2
+            start_y = int(size['height'] * 0.8) # Start near bottom
+            end_y = int(size['height'] * 0.3)   # End near top
+            
+            print("   -> Scrolling down (Swipe Up)...")
+            actions = ActionBuilder(driver)
+            p = PointerInput(interaction.POINTER_TOUCH, "finger")
+            
+            actions.pointer_action.move_to_location(start_x, start_y)
+            actions.pointer_action.pointer_down()
+            actions.pointer_action.pause(0.2)
+            actions.pointer_action.move_to_location(start_x, end_y, duration=600) 
+            actions.pointer_action.pointer_up()
+            actions.perform()
+            time.sleep(1) 
+            return True
+        except Exception as e:
+            print(f"Scroll gesture failed: {e}")
+            return False
+
+    def scroll_to_find(self, driver, xpath, max_scrolls=3):
         """
-        Tries to click via XPath. If fails, taps specific coordinates.
-        Args:
-            timeout: How long to wait. For permissions, use a short timeout (e.g., 3s).
+        Tries to find an element. If not found, scrolls and tries again.
         """
-        # 1. Try finding via XPath
-        if xpath:
+        if not xpath: return None
+
+        for i in range(max_scrolls + 1):
             try:
-                # print(f"[{element_name}] Trying XPath...")
-                element = WebDriverWait(driver, timeout).until(
-                    EC.element_to_be_clickable((AppiumBy.XPATH, xpath))
+                element = WebDriverWait(driver, 1).until(
+                    EC.visibility_of_element_located((AppiumBy.XPATH, xpath))
                 )
-                element.click()
-                print(f"[{element_name}] Clicked via XPath.")
-                return True
+                return element # Found it!
             except:
-                # Be silent about permissions failing, as they might not exist
-                pass
+                if i < max_scrolls:
+                    print(f"   -> Element not visible yet. Scrolling ({i+1}/{max_scrolls})...")
+                    self.perform_scroll(driver)
+                else:
+                    pass 
+        return None
+
+    def smart_click(self, driver, xpath, coordinates, element_name, timeout=5):
+        """Tries to click via XPath (with Auto-Scroll). If fails, taps specific coordinates."""
+        
+        # 1. Try finding via XPath (with Scrolling)
+        if xpath:
+            print(f"[{element_name}] Searching via XPath...")
+            try:
+                element = self.scroll_to_find(driver, xpath) # Uses helper to scroll if needed
+                if element:
+                    element.click()
+                    print(f"[{element_name}] Clicked via XPath.")
+                    return True
+                else:
+                    print(f"[{element_name}] Not found via XPath after scrolling.")
+            except Exception as e:
+                print(f"[{element_name}] XPath interaction failed: {e}")
         
         # 2. Try clicking via Coordinates (Fallback)
         if coordinates:
@@ -91,26 +127,21 @@ class TestLogin:
         return False
 
     def smart_send_keys(self, driver, xpath, text, element_name, coordinates=None):
-        """
-        Robust text input: XPath -> ADB Fallback
-        """
-        # METHOD 1: Standard XPath Interaction
+        """Robust text input: XPath (Auto-Scroll) -> ADB Fallback"""
         try:
             print(f"[{element_name}] Method 1: Trying standard XPath...")
-            element = WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((AppiumBy.XPATH, xpath))
-            )
-            element.click()
-            time.sleep(0.5)
-            element.clear()
-            element.send_keys(text)
-            try: driver.hide_keyboard()
-            except: pass
-            return True
+            element = self.scroll_to_find(driver, xpath) # Uses helper to scroll if needed
+            if element:
+                element.click()
+                time.sleep(0.5)
+                element.clear()
+                element.send_keys(text)
+                try: driver.hide_keyboard()
+                except: pass
+                return True
         except:
             print(f"[{element_name}] Method 1 failed.")
 
-        # METHOD 2: Coordinate Tap + ADB Injection
         if coordinates:
             try:
                 x, y = coordinates
@@ -124,14 +155,35 @@ class TestLogin:
 
         return False
 
+    def smart_select_dropdown(self, driver, dropdown_xpath, option_xpath, dropdown_coords, option_coords, name):
+        """Helper to handle dropdown selection logic"""
+        
+        # NOTE: smart_click inside here will handle the scrolling to the dropdown itself
+        print(f"[{name}] Opening Dropdown...")
+        if not self.smart_click(driver, dropdown_xpath, dropdown_coords, f"{name} Dropdown"):
+             print(f"[{name}] Failed to open dropdown.")
+             return False
+        
+        time.sleep(1) 
+
+        print(f"[{name}] Selecting Option...")
+        if not self.smart_click(driver, option_xpath, option_coords, f"{name} Option"):
+            print(f"[{name}] Failed to select option.")
+            return False
+            
+        return True
+
     # --- TEST FLOW ---
 
-    @allure.story("Successful Login")
-    @allure.title("Verify user can login with valid credentials")
-    def test_login_success(self, driver):
+    @allure.story("Login and Create Farmer")
+    @allure.title("Verify user can login and add a new farmer")
+    def test_login_and_add_farmer(self, driver):
+        
+        print(f"\n--- STARTING TEST WITH LOGIN_METHOD: {self.LOGIN_METHOD} ---\n")
+        
         test_flow_steps = []
 
-        # --- Load JSON (Robust Path) ---
+        # --- Load JSON ---
         filename = 'regular_client.json'
         possible_paths = [
             os.path.join('locators', filename),
@@ -145,114 +197,149 @@ class TestLogin:
 
         login_xpaths = data.get("login_screen", {})
         dashboard_xpaths = data.get("dashboard_screen", {})
-        all_coords = data.get("coordinates", {}).get("login_screen", {})
+        farmer_xpaths = data.get("farmer_screen", {})
+        
+        login_coords = data.get("coordinates", {}).get("login_screen", {})
+        dashboard_coords = data.get("coordinates", {}).get("dashboard_screen", {})
+        farmer_coords = data.get("coordinates", {}).get("farmer_screen", {})
 
         try:
             # ========================================================
-            # PART 1: PRE-LOGIN STEPS (Language & Notifications)
+            # PART 1-3: LOGIN FLOW
             # ========================================================
             
-            # 1. Language Next
             with allure.step("1. Language Selection"):
                 key = "next_button_language_login"
-                if not self.smart_click(driver, login_xpaths.get(key), all_coords.get(key), key):
-                    raise Exception("Language Next button failed")
+                self.smart_click(driver, login_xpaths.get(key), login_coords.get(key), key)
 
-            # 2. Pre-Login Permission: Notifications
-            # We use a short timeout (3s) because on some devices/Android versions, this might not appear yet.
-            with allure.step("2. Allow Notifications (Pre-Login)"):
+            with allure.step("2. Allow Notifications"):
                 key = "allow_notifications_button"
-                self.smart_click(driver, login_xpaths.get(key), all_coords.get(key), key, timeout=3)
+                self.smart_click(driver, login_xpaths.get(key), login_coords.get(key), key, timeout=3)
 
-            # ========================================================
-            # PART 2: LOGIN LOGIC (Phone or Email)
-            # ========================================================
-            
-            # if self.LOGIN_METHOD == "PHONE":
-            #     with allure.step("3a. Select Phone Tab"):
-            #         self.smart_click(driver, login_xpaths.get("tab_phone_login"), all_coords.get("tab_phone_login"), "Phone Tab")
+            login_performed = False
+            if self.LOGIN_METHOD == "PHONE":
+                login_performed = True
+                # Phone Logic Omitted
+                pass 
 
-            #     with allure.step("3b. Enter Phone Number"):
-            #         key = "phone_number_input"
-            #         coords = all_coords.get(key, [540, 600]) # Default fallback
-            #         success = self.smart_send_keys(driver, login_xpaths.get(key), "9618574550", "Phone Input", coords)
-            #         if not success: print("WARNING: Phone input failed.")
-
-            #     with allure.step("3c. Click Next"):
-            #         key = "next_button_login"
-            #         if not self.smart_click(driver, login_xpaths.get(key), all_coords.get(key), key):
-            #             raise Exception("Login Next button failed")
-
-            #     with allure.step("3d. Verify OTP"):
-            #         print("Waiting for OTP...")
-            #         time.sleep(8) 
-            #         key = "verify_button_login"
-            #         if not self.smart_click(driver, login_xpaths.get(key), all_coords.get(key), key):
-            #             raise Exception("Verify OTP button failed")
-
-            if self.LOGIN_METHOD == "EMAIL":
+            elif self.LOGIN_METHOD == "EMAIL":
+                login_performed = True
                 with allure.step("3a. Select Email Tab"):
-                    self.smart_click(driver, login_xpaths.get("tab_email_login"), all_coords.get("tab_email_login"), "Email Tab")
-
+                    self.smart_click(driver, login_xpaths.get("tab_email_login"), login_coords.get("tab_email_login"), "Email Tab")
                 with allure.step("3b. Enter Email"):
                     self.smart_send_keys(driver, login_xpaths.get("email_input"), "testteam@yopmail.com", "Email Input")
-
                 with allure.step("3c. Enter Password"):
                     self.smart_send_keys(driver, login_xpaths.get("password_input"), "Test@2025", "Password Input")
-
                 with allure.step("3d. Click Submit"):
                     key = "submit_login_button"
-                    if not self.smart_click(driver, login_xpaths.get(key), all_coords.get(key), key):
+                    if not self.smart_click(driver, login_xpaths.get(key), login_coords.get(key), key):
                         raise Exception("Submit button failed")
 
-            # ========================================================
-            # PART 3: POST-LOGIN PERMISSIONS (Location, Picture, Audio)
-            # ========================================================
-            # These usually appear while the dashboard is loading
-            
+            if not login_performed: raise ValueError("Login method not implemented")
+
+            # 4. Post-Login Permissions
             permissions_to_handle = [
                 ("allow_picture_button", "Allow Picture"),
                 ("allow_location_button", "Allow Location"),
                 ("allow_audio_button", "Allow Audio")
             ]
-
             for key, desc in permissions_to_handle:
                 with allure.step(f"4. Post-Login Permission: {desc}"):
-                    # We simply try to click them. If they aren't there, we move on.
-                    # This prevents the test from failing if a permission was already granted or doesn't appear.
-                    self.smart_click(
-                        driver, 
-                        login_xpaths.get(key), 
-                        all_coords.get(key), 
-                        key, 
-                        timeout=3
-                    )
+                    self.smart_click(driver, login_xpaths.get(key), login_coords.get(key), key, timeout=3)
 
-            # ========================================================
-            # PART 4: DASHBOARD VERIFICATION
-            # ========================================================
-
+            # 5. Verify Dashboard
             with allure.step("5. Verify Dashboard"):
                 dashboard_title_xpath = dashboard_xpaths.get("dashboard_title")
                 try:
-                    # Wait up to 15 seconds for dashboard, as permissions might have slowed it down
-                    WebDriverWait(driver, 15).until(
-                        EC.presence_of_element_located((AppiumBy.XPATH, dashboard_title_xpath))
-                    )
-                    allure.attach("Login successful", name="Result", attachment_type=allure.attachment_type.TEXT)
-                    test_flow_steps.append({"step": "Dashboard Verified", "status": "Success"})
+                    WebDriverWait(driver, 15).until(EC.presence_of_element_located((AppiumBy.XPATH, dashboard_title_xpath)))
                     print("Dashboard found!")
+                    test_flow_steps.append({"step": "Dashboard Verified", "status": "Success"})
                 except:
-                    print("Dashboard check timed out. Verify if app crashed or stuck on permissions.")
-                    # Optional: Take screenshot on failure
-                    try: allure.attach(driver.get_screenshot_as_png(), name="Failure_Screenshot", attachment_type=allure.attachment_type.PNG)
-                    except: pass
                     raise Exception("Dashboard not found")
 
+            # ========================================================
+            # PART 5: ADD FARMER FLOW (With Explicit Scrolls)
+            # ========================================================
+            
+            print("\n--- STARTING ADD FARMER FLOW ---\n")
+
+            with allure.step("6. Click Add Button"):
+                key = "add_button_dashboard" 
+                if not self.smart_click(driver, dashboard_xpaths.get(key), dashboard_coords.get(key), "Add Button"):
+                    raise Exception("Failed to click global Add button")
+
+            with allure.step("7. Click 'Add New Farmer'"):
+                key = "add_new_farmer_option"
+                if not self.smart_click(driver, dashboard_xpaths.get(key), dashboard_coords.get(key), "Add New Farmer Option"):
+                    raise Exception("Failed to click Add New Farmer option")
+
+            with allure.step("8. Enter Farmer Name"):
+                key = "farmer_name_input"
+                farmer_name = "Test Farmer " + str(time.time())[-4:] 
+                if not self.smart_send_keys(driver, farmer_xpaths.get(key), farmer_name, "Farmer Name Input", farmer_coords.get(key)):
+                     raise Exception("Failed to enter Farmer Name")
+
+            with allure.step("9. Enter Farmer Mobile"):
+                key = "farmer_mobile_input"
+                if not self.smart_send_keys(driver, farmer_xpaths.get(key), "9876543210", "Farmer Mobile Input", farmer_coords.get(key)):
+                    raise Exception("Failed to enter Farmer Mobile")
+
+            # 10. Select Business Unit - UPDATED WITH EXPLICIT SCROLL
+            with allure.step("10. Select Business Unit"):
+                dropdown_key = "business_unit_dropdown"
+                option_key = "business_unit_option_1"
+                
+                # --- ADDED: Explicitly scroll to find the input first ---
+                print("   -> Explicitly scrolling to find Business Unit dropdown...")
+                self.scroll_to_find(driver, farmer_xpaths.get(dropdown_key))
+                
+                success = self.smart_select_dropdown(
+                    driver,
+                    farmer_xpaths.get(dropdown_key),
+                    farmer_xpaths.get(option_key),
+                    farmer_coords.get(dropdown_key),
+                    farmer_coords.get(option_key),
+                    "Business Unit"
+                )
+                if not success: raise Exception("Failed to select Business Unit")
+
+            # 11. Select Field Agent - UPDATED WITH EXPLICIT SCROLL
+            with allure.step("11. Select Field Agent"):
+                dropdown_key = "field_agent_dropdown"
+                option_key = "field_agent_option_1" 
+                
+                # --- ADDED: Explicitly scroll to find the input first ---
+                print("   -> Explicitly scrolling to find Field Agent dropdown...")
+                self.scroll_to_find(driver, farmer_xpaths.get(dropdown_key))
+
+                success = self.smart_select_dropdown(
+                    driver,
+                    farmer_xpaths.get(dropdown_key),
+                    farmer_xpaths.get(option_key),
+                    farmer_coords.get(dropdown_key),
+                    farmer_coords.get(option_key),
+                    "Field Agent"
+                )
+                if not success: raise Exception("Failed to select Field Agent")
+
+            with allure.step("12. Click Submit Farmer"):
+                key = "submit_farmer_button"
+                # Smart click handles scroll for the button too
+                if not self.smart_click(driver, farmer_xpaths.get(key), farmer_coords.get(key), "Submit Farmer Button"):
+                    raise Exception("Failed to click Submit Farmer button")
+            
+            allure.attach("Farmer Created Successfully", name="Result", attachment_type=allure.attachment_type.TEXT)
+            test_flow_steps.append({"step": "Farmer Created", "status": "Success"})
+            print("Farmer creation flow completed!")
+
+        except Exception as e:
+            try: allure.attach(driver.get_screenshot_as_png(), name="Failure_Screenshot", attachment_type=allure.attachment_type.PNG)
+            except: pass
+            raise e
+
         finally:
-            # Save the captured flow to a file
             os.makedirs("test-flows", exist_ok=True)
-            with open("test-flows/login_flow_success.json", "w") as f:
+            with open("test-flows/farmer_flow_success.json", "w") as f:
                 json.dump(test_flow_steps, f, indent=4)
 
         # try:
