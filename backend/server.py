@@ -11,6 +11,7 @@ import subprocess
 import socket
 import asyncio
 from gdrive_loader import download_apk, extract_app_icon, get_apk_info
+from typing import List, Optional, Dict
 
 # Add project root to sys.path so we can import tests.*
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))  # root: f:\projects\test-automation-platform
@@ -92,6 +93,7 @@ class RunCompleteEvent(BaseModel):
 
 class ExistingTestRequest(BaseModel):
     apk_name: str
+    tests_to_run: Optional[List[Dict[str, str]]] = None  # Added field
 
 class LogMessage(BaseModel):
     message: str
@@ -112,6 +114,7 @@ class ConnectionManager:
 
 class TestRequest(BaseModel):
     url: str
+    tests_to_run: Optional[List[Dict[str, str]]] = None # Added field
 
 manager = ConnectionManager()
 
@@ -235,14 +238,18 @@ async def start_test(request: TestRequest, background_tasks: BackgroundTasks):
         info = get_apk_info(apk_path) or {}
         app_name = info.get("app_name")
         package_name = info.get("package_name")
-        
+
         # 2. Trigger the actual Automation Test in the background
         # (We will add the test_runner logic in the next step)
         # background_tasks.add_task(run_appium_test, apk_path)
-        
+
         # Add the test run to background tasks
         # This runs the test AFTER the response is sent to UI
-        background_tasks.add_task(run_tests_and_get_suggestions, apk_path)
+        background_tasks.add_task(
+                   run_tests_and_get_suggestions, 
+                   apk_path, 
+                   tests_to_run=request.tests_to_run
+               )
 
         return {
             "status": "success", 
@@ -252,7 +259,7 @@ async def start_test(request: TestRequest, background_tasks: BackgroundTasks):
             "package_name": package_name,
             "apk_path": apk_path
         }
-    
+
     except Exception as e:
         await manager.broadcast({
             "type": "LOG",
@@ -288,8 +295,11 @@ async def start_test_existing(request: ExistingTestRequest, background_tasks: Ba
         package_name = info.get("package_name")
 
         # Run tests in background
-        background_tasks.add_task(run_tests_and_get_suggestions, apk_path)
-
+        background_tasks.add_task(
+            run_tests_and_get_suggestions, 
+            apk_path, 
+            tests_to_run=request.tests_to_run
+        )
         return {
             "status": "success",
             "message": "Using existing APK. Test Starting...",
@@ -307,7 +317,7 @@ async def start_test_existing(request: ExistingTestRequest, background_tasks: Ba
             "payload": {"message": f"Failed to start test: {str(e)}", "status": "FAILED"}
         })
         raise HTTPException(status_code=400, detail=f"Failed: {str(e)}")
-    
+
 @app.get("/api/apk-list")
 async def list_apks():
     """
@@ -321,7 +331,7 @@ async def list_apks():
         return {"apks": files}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
+
 @app.post("/stop-test")
 async def stop_test():
     """
