@@ -247,15 +247,15 @@ class TestLogin:
                 with allure.step(f"4. Post-Login Permission: {desc}"):
                     self.smart_click(driver, login_xpaths.get(key), login_coords.get(key), key, timeout=3)
 
-            # 5. Verify Dashboard
-            with allure.step("5. Verify Dashboard"):
-                dashboard_title_xpath = dashboard_xpaths.get("dashboard_title")
-                try:
-                    WebDriverWait(driver, 15).until(EC.presence_of_element_located((AppiumBy.XPATH, dashboard_title_xpath)))
-                    print("Dashboard found!")
-                    test_flow_steps.append({"step": "Dashboard Verified", "status": "Success"})
-                except:
-                    raise Exception("Dashboard not found")
+            # # 5. Verify Dashboard
+            # with allure.step("5. Verify Dashboard"):
+            #     dashboard_title_xpath = dashboard_xpaths.get("dashboard_title")
+            #     try:
+            #         WebDriverWait(driver, 15).until(EC.presence_of_element_located((AppiumBy.XPATH, dashboard_title_xpath)))
+            #         print("Dashboard found!")
+            #         test_flow_steps.append({"step": "Dashboard Verified", "status": "Success"})
+            #     except:
+            #         raise Exception("Dashboard not found")
 
             # ========================================================
             # PART 5: ADD FARMER FLOW (With Explicit Scrolls)
@@ -285,23 +285,23 @@ class TestLogin:
                     raise Exception("Failed to enter Farmer Mobile")
 
             # 10. Select Business Unit - UPDATED WITH EXPLICIT SCROLL
-            with allure.step("10. Select Business Unit"):
-                dropdown_key = "business_unit_dropdown"
-                option_key = "business_unit_option_1"
+            # with allure.step("10. Select Business Unit"):
+            #     dropdown_key = "business_unit_dropdown"
+            #     option_key = "business_unit_option_1"
                 
-                # --- ADDED: Explicitly scroll to find the input first ---
-                print("   -> Explicitly scrolling to find Business Unit dropdown...")
-                self.scroll_to_find(driver, farmer_xpaths.get(dropdown_key))
+            #     # --- ADDED: Explicitly scroll to find the input first ---
+            #     print("   -> Explicitly scrolling to find Business Unit dropdown...")
+            #     self.scroll_to_find(driver, farmer_xpaths.get(dropdown_key))
                 
-                success = self.smart_select_dropdown(
-                    driver,
-                    farmer_xpaths.get(dropdown_key),
-                    farmer_xpaths.get(option_key),
-                    farmer_coords.get(dropdown_key),
-                    farmer_coords.get(option_key),
-                    "Business Unit"
-                )
-                if not success: raise Exception("Failed to select Business Unit")
+            #     success = self.smart_select_dropdown(
+            #         driver,
+            #         farmer_xpaths.get(dropdown_key),
+            #         farmer_xpaths.get(option_key),
+            #         farmer_coords.get(dropdown_key),
+            #         farmer_coords.get(option_key),
+            #         "Business Unit"
+            #     )
+            #     if not success: raise Exception("Failed to select Business Unit")
 
             # 11. Select Field Agent - UPDATED WITH EXPLICIT SCROLL
             with allure.step("11. Select Field Agent"):

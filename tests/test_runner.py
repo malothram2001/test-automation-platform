@@ -55,7 +55,7 @@ def _generate_and_open_allure_report(project_root: str) -> None:
     """
     Generates and opens Allure HTML report.
     """
-    allure_cmd = r"C:\Users\ram\scoop\shims\allure"
+    allure_cmd = r"C:\Users\Pramo\scoop\shims\allure"
 
     # Fallback to system 'allure' if the hardcoded path doesn't exist
     if not os.path.exists(allure_cmd) and shutil.which("allure"):
