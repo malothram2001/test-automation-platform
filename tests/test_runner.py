@@ -14,6 +14,7 @@ load_dotenv()
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 CURRENT_PROC: Optional[subprocess.Popen] = None
+STOP_FLAG = False  # New global flag to control execution flow
 
 RESULTS_DIR = "allure-results"
 REPORT_DIR = "allure-report"
@@ -153,7 +154,9 @@ def send_module_status(module: str, status: str, message: str = ""):
         pass
 
 def stop_current_tests() -> bool:
-    global CURRENT_PROC
+    global CURRENT_PROC, STOP_FLAG
+    STOP_FLAG = True  # Signal the runner loop to stop
+
     if CURRENT_PROC is None:
         return False
 
@@ -161,7 +164,7 @@ def stop_current_tests() -> bool:
         send_log("Stopping tests on user request...", "FAILED")
         CURRENT_PROC.terminate()
         try:
-            CURRENT_PROC.wait(timeout=5)
+            CURRENT_PROC.wait(timeout=2)
         except subprocess.TimeoutExpired:
             CURRENT_PROC.kill()
         send_log("Test process terminated.", "FAILED")
@@ -177,7 +180,10 @@ def run_pytest_streaming(pytest_args: list[str], module_name: str, clean_allure:
     Run pytest in a subprocess and stream ALL stdout lines to the frontend log console.
     Also writes allure results to allure-results.
     """
-    global CURRENT_PROC
+    global CURRENT_PROC, STOP_FLAG
+
+    if STOP_FLAG:
+        return False
 
     project_root = os.path.dirname(os.path.dirname(__file__))
 
@@ -201,6 +207,7 @@ def run_pytest_streaming(pytest_args: list[str], module_name: str, clean_allure:
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
+    env["PYTHONUNBUFFERED"] = "1" # Force unbuffered output for real-time logs
 
     CURRENT_PROC = subprocess.Popen(
         cmd,
@@ -215,11 +222,29 @@ def run_pytest_streaming(pytest_args: list[str], module_name: str, clean_allure:
     proc = CURRENT_PROC
     assert proc.stdout is not None
     for line in proc.stdout:
+        if STOP_FLAG:
+            break # Stop reading logs immediately
         send_log(line.rstrip("\n"), "INFO")
 
+    # If stopped, ensure we don't hang on wait()
+    if STOP_FLAG:
+        if proc.poll() is None:
+             try:
+                 proc.kill()
+             except:
+                 pass
+             
+        # FIX: Notify frontend that this specific module failed/stopped
+        send_module_status(module_name, "failed", "Stopped by user")
+        return False
+    
     proc.wait()
     ok = proc.returncode == 0
     CURRENT_PROC = None
+
+    if STOP_FLAG: # Double check in case flag was set during wait
+        send_log("Test execution interrupted.", "FAILED")
+        return False
 
     if ok:
         send_module_status(module_name, "completed", f"{module_name} tests passed")
@@ -272,6 +297,10 @@ def run_tests_and_get_suggestions(
     :param app_type: If provided, resolves tests from TEST_REGISTRY.
     :param module_names: Specific modules to run for the app_type.
     """
+
+    global STOP_FLAG
+    STOP_FLAG = False  # Reset flag at start of new run
+
     project_root = os.path.dirname(os.path.dirname(__file__))
 
     if not os.path.exists(apk_path):
@@ -303,7 +332,11 @@ def run_tests_and_get_suggestions(
 
     # 2. Run the tests
     overall_ok = True
+    tests_executed = False # Track if any test actually ran
     for index, test_config in enumerate(final_test_list):
+        if STOP_FLAG:
+            send_log("Sequence stopped by user.", "WARNING")
+            break
         module_name = test_config.get("name", f"Module {index + 1}")
         script_path = test_config.get("path")
         
@@ -321,7 +354,20 @@ def run_tests_and_get_suggestions(
             module_name=module_name,
             clean_allure=should_clean,
         )
+        tests_executed = True # Mark that we actually ran something
         overall_ok = overall_ok and module_ok
+
+        # Stop sequence if user requested stop
+        if STOP_FLAG:
+            break
+
+    if not tests_executed:
+        send_log("No tests were executed (all skipped or missing). Skipping report generation.", "WARNING")
+        return
+    
+    # Don't generate report if stopped mid-way by user
+    if STOP_FLAG:
+        return
 
     if overall_ok:
         send_log("All selected modules passed", "SUCCESS")

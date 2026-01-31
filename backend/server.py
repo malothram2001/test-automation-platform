@@ -99,6 +99,9 @@ class LogMessage(BaseModel):
     message: str
     status: str = "INFO"
 
+# --- Globals to manage child processes ---
+DOWNLOAD_PROCESS_OBJ = None  # Holds the asyncio Process object
+
 # 1. Connection Manager for WebSockets
 class ConnectionManager:
     def __init__(self):
@@ -219,17 +222,72 @@ async def module_status(data: dict):
 
 @app.post("/start-test")
 async def start_test(request: TestRequest, background_tasks: BackgroundTasks):
+    global DOWNLOAD_PROCESS_OBJ
+    
     try:
-
         # Tell frontend: starting download
         await manager.broadcast({
             "type": "LOG",
             "payload": {"message": "Starting APK download...", "status": "INFO"}
         })
-        # 1. Download the APK (This happens immediately)
-        apk_path = download_apk(request.url)
 
-        # 2. Extract Icon immediately after download
+        script_path = os.path.join(os.path.dirname(__file__), "gdrive_loader.py")
+        apk_path = None
+
+        # --- FIX: Force UTF-8 encoding for the subprocess ---
+        # This prevents 'charmap' codec errors when printing emojis on Windows
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+
+        # 1. Spawn the download subprocess
+        # Using -u for unbuffered output to get real-time progress
+        DOWNLOAD_PROCESS_OBJ = await asyncio.create_subprocess_exec(
+            sys.executable, "-u", script_path, request.url,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env, 
+        )
+
+        # 2. Read the output stream
+        async for line in DOWNLOAD_PROCESS_OBJ.stdout:
+            decoded_line = line.decode('utf-8').strip()
+            
+            if decoded_line.startswith("PROGRESS:"):
+                # Broadcast progress to UI
+                raw_msg = decoded_line.replace("PROGRESS:", "")
+                await manager.broadcast({
+                    "type": "LOG",
+                    "payload": {"message": raw_msg, "status": "PROGRESS"}
+                })
+            elif decoded_line.startswith("RESULT:"):
+                # Capture the final file path
+                apk_path = decoded_line.replace("RESULT:", "").strip()
+            else:
+                # Forward other logs
+                if decoded_line:
+                    await manager.broadcast({
+                        "type": "LOG",
+                        "payload": {"message": decoded_line, "status": "INFO"}
+                    })
+
+        # Wait for finish
+        await DOWNLOAD_PROCESS_OBJ.wait()
+        
+         # 3. Check for failures
+        if DOWNLOAD_PROCESS_OBJ.returncode != 0:
+             # Read stderr to see why it crashed
+            stderr_data = await DOWNLOAD_PROCESS_OBJ.stderr.read()
+            error_message = stderr_data.decode('utf-8').strip() or "Unknown error (process killed?)"
+            print(f"Subprocess Error: {error_message}")
+            raise Exception(f"Script Error: {error_message}")
+
+        if not apk_path:
+            raise Exception("Download script finished but returned no path.")
+            
+        # Reset global ref
+        DOWNLOAD_PROCESS_OBJ = None
+
+        # 3. Extract Icon immediately after download
         icon_url = extract_app_icon(apk_path)
 
         # Construct full URL for Frontend
@@ -239,12 +297,7 @@ async def start_test(request: TestRequest, background_tasks: BackgroundTasks):
         app_name = info.get("app_name")
         package_name = info.get("package_name")
         
-        # 2. Trigger the actual Automation Test in the background
-        # (We will add the test_runner logic in the next step)
-        # background_tasks.add_task(run_appium_test, apk_path)
-        
-        # Add the test run to background tasks
-        # This runs the test AFTER the response is sent to UI
+        # 4. Trigger the actual Automation Test
         background_tasks.add_task(
                    run_tests_and_get_suggestions, 
                    apk_path, 
@@ -261,12 +314,13 @@ async def start_test(request: TestRequest, background_tasks: BackgroundTasks):
         }
     
     except Exception as e:
+        DOWNLOAD_PROCESS_OBJ = None
         await manager.broadcast({
             "type": "LOG",
-            "payload": {"message": f"Download failed: {str(e)}", "status": "FAILED"}
+            "payload": {"message": f"Download interrupted: {str(e)}", "status": "FAILED"}
         })
         raise HTTPException(status_code=400, detail=f"Download Failed: {str(e)}")
-
+    
 @app.post("/start-test-existing")
 async def start_test_existing(request: ExistingTestRequest, background_tasks: BackgroundTasks):
     """
@@ -335,24 +389,40 @@ async def list_apks():
 @app.post("/stop-test")
 async def stop_test():
     """
-    Stop the currently running pytest process (if any).
-    Called by the frontend Stop Test button.
+    Stop the currently running pytest process OR the downloading process.
     """
-    print("DEBUG: /stop-test called") 
-    stopped = stop_current_tests()
-    print(f"DEBUG: stop_current_tests() -> {stopped}")
+    print("DEBUG: /stop-test called")
+    
+    stopped_something = False
+    
+    # 1. Check/Stop Download Process
+    global DOWNLOAD_PROCESS_OBJ
+    if DOWNLOAD_PROCESS_OBJ is not None:
+        try:
+            print("DEBUG: Terminating download process...")
+            DOWNLOAD_PROCESS_OBJ.terminate()
+            stopped_something = True
+        except Exception as e:
+            print(f"Error stopping download: {e}")
+        # Note: We rely on the start_test loop to clean up DOWNLOAD_PROCESS_OBJ = None
 
-    if stopped:
+    # 2. Check/Stop Pytest Process
+    test_stopped = stop_current_tests()
+    if test_stopped:
+        stopped_something = True
+    print(f"DEBUG: stop_current_tests() -> {test_stopped}")
+
+    if stopped_something:
         await manager.broadcast({
             "type": "LOG",
             "payload": {
-                "message": "Backend: test process stopped on user request.",
+                "message": "Backend: Process (Download/Test) stopped on user request.",
                 "status": "FAILED",
             }
         })
         return {"status": "stopped"}
     else:
         return {"status": "no-process"}
-
+    
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

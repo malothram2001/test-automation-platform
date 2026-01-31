@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import useWebSocket, { ReadyState } from 'react-use-websocket';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Play, Terminal, Activity, CheckCircle, Circle, AlertCircle, Cpu } from 'lucide-react';
+import { Play, Terminal, Activity, CheckCircle, Circle, AlertCircle, Cpu, Smartphone, Server } from 'lucide-react';
+
 import './App.css'; // Import the new CSS file
 
 const WS_URL = 'ws://localhost:8000/ws/test-status';
@@ -88,6 +89,8 @@ const ModuleFlow = ({ modules, isRunning, onToggleModule }) => {
                 {mod.name}
               </span>
               {mod.status === 'running' && <span className="status-label">Testing...</span>}
+              {mod.status === 'completed' && <span className="status-label" style={{ color: '#22c55e' }}>Completed</span>}
+              {mod.status === 'failed' && <span className="status-label" style={{ color: '#ef4444' }}>Failed</span>}
             </div>
           );
         })}
@@ -212,14 +215,14 @@ function App() {
 
   // --- Update modules when App Type changes ---
   useEffect(() => {
-    if (!isRunning) {
-      setModules(APP_VARIANTS[selectedAppKey].modules.map(m => ({
-        ...m,
-        status: 'pending',
-        isSelected: true
-      })));
-    }
-  }, [selectedAppKey, isRunning]);
+    // if (!isRunning) {
+    setModules(APP_VARIANTS[selectedAppKey].modules.map(m => ({
+      ...m,
+      status: 'pending',
+      isSelected: true
+    })));
+    // }
+  }, [selectedAppKey]);
 
   const toggleModuleSelection = (index) => {
     if (isRunning) return;
@@ -253,7 +256,37 @@ function App() {
   const handleIncomingData = (data) => {
     if (data.type === 'LOG') {
       const { message, status } = data.payload || {};
+
+      // Handle PROGRESS updates by replacing the last line if it's also a progress line
+      if (status === 'PROGRESS') {
+        setLogs(prev => {
+          if (prev.length > 0 && prev[prev.length - 1].type === 'PROGRESS') {
+            // Replace the last log entry
+            const newLogs = [...prev];
+            newLogs[newLogs.length - 1] = { 
+              time: new Date().toLocaleTimeString(), 
+              message, 
+              type: status 
+            };
+            return newLogs;
+          }
+          // Otherwise append
+          return [...prev, { time: new Date().toLocaleTimeString(), message, type: status }];
+        });
+        return; // Skip the rest of the logic for progress
+      }
+      
       setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), message, type: status || 'INFO' }]);
+
+      // FAILSAFE: Force stop running state if we see end-of-run log messages
+      if (message && (
+        message.includes("Allure HTML report generated") ||
+        message.includes("Skipping report generation") ||
+        message.includes("Test execution interrupted") ||
+        message.includes("Test process terminated")
+      )) {
+        setIsRunning(false);
+      }
 
     } else if (data.type === 'MODULE') {
       const { module, status, message } = data.payload || {};
@@ -262,7 +295,14 @@ function App() {
           const updated = prev.map(m =>
             m.name.toLowerCase() === module.toLowerCase() ? { ...m, status } : m
           );
-          if (!updated.some(m => m.status === 'running')) setIsRunning(false);
+
+          // FIX: Only stop running if NO modules are running AND NO selected modules are pending
+          const hasRunning = updated.some(m => m.status === 'running');
+          const hasPending = updated.some(m => m.status === 'pending' && m.isSelected);
+
+          if (!hasRunning && !hasPending) {
+            setIsRunning(false);
+          }
           return updated;
         });
 
@@ -271,14 +311,15 @@ function App() {
         }
       }
     } else if (data.type === 'RUN_COMPLETE') {
-      if (!hasOpenedReport && data.payload?.report_url) {
-        window.open(data.payload.report_url, '_blank', 'noopener,noreferrer');
-        setHasOpenedReport(true);
-      }
+      setIsRunning(false);
+      // if (!hasOpenedReport && data.payload?.report_url) {
+      //   window.open(data.payload.report_url, '_blank', 'noopener,noreferrer');
+      //   setHasOpenedReport(true);
+      // }
     }
   };
 
-const handleRunTest = async () => {
+  const handleRunTest = async () => {
     if (!apkUrl && !selectedApk) {
       alert("Please enter a Google Drive URL or select an existing APK!");
       return;
@@ -297,15 +338,15 @@ const handleRunTest = async () => {
     setModules(prev => prev.map(m => ({ ...m, status: 'pending' })));
     setIsRunning(true);
     setIsDownloading(!!apkUrl);
-    setLogs([]); 
+    setLogs([]);
 
     // --- NEW: Add initial log ---
     const appLabel = APP_VARIANTS[selectedAppKey].label;
     handleIncomingData({
       type: 'LOG',
-      payload: { 
-        message: `Initializing ${appLabel} test with ${testsToRun.length} modules...`, 
-        status: 'INFO' 
+      payload: {
+        message: `Initializing ${appLabel} test with ${testsToRun.length} modules...`,
+        status: 'INFO'
       }
     });
 
@@ -313,12 +354,12 @@ const handleRunTest = async () => {
       // --- NEW: Send app_type in payload ---
       const payload = {
         tests_to_run: testsToRun,
-        app_type: APP_VARIANTS[selectedAppKey].id 
+        app_type: APP_VARIANTS[selectedAppKey].id
       };
 
       let endpoint = selectedApk ? '/start-test-existing' : '/start-test';
-      let body = selectedApk 
-        ? { ...payload, apk_name: selectedApk } 
+      let body = selectedApk
+        ? { ...payload, apk_name: selectedApk }
         : { ...payload, url: apkUrl };
 
       const response = await fetch(`${API_URL}${endpoint}`, {
@@ -351,7 +392,7 @@ const handleRunTest = async () => {
     }
   };
 
-const handleStopTest = async () => {
+  const handleStopTest = async () => {
     try {
       await fetch(`${API_URL}/stop-test`, { method: 'POST' });
     } catch (e) { console.error(e); }
@@ -360,7 +401,7 @@ const handleStopTest = async () => {
     handleIncomingData({ type: 'LOG', payload: { message: 'Test stopped by user.', status: 'FAILED' } });
   };
 
-// Poll device & Load APKs
+  // Poll device & Load APKs
   useEffect(() => {
     const checkDevice = async () => {
       try {
@@ -369,13 +410,13 @@ const handleStopTest = async () => {
         setIsDeviceConnected(!!data.connected);
       } catch (e) { setIsDeviceConnected(false); }
     };
-    
+
     const loadApks = async () => {
       try {
         const res = await fetch(`${API_URL}/api/apk-list`);
         const data = await res.json();
         setExistingApks(data.apks || []);
-      } catch (e) {}
+      } catch (e) { }
     };
 
     loadApks();
@@ -406,14 +447,26 @@ const handleStopTest = async () => {
           <h1 className="brand-title">TAP / Android</h1>
           <p className="brand-subtitle">Test Automation Platform • Live Profiler</p>
         </div>
-        <div>
+        <div className='status-box'>
           <div className="system-status">
-            <div className={`status-dot ${isDeviceConnected ? 'online' : 'offline'}`}></div>
-            <span>{isDeviceConnected ? 'Device Connected' : 'No Device'}</span>
+            <Smartphone
+              size={18}
+              color={isDeviceConnected ? '#4ade80' : '#ef4444'}
+              style={{ marginRight: '6px' }}
+            />
+            <span style={{ color: isDeviceConnected ? '#4ade80' : '#ef4444' }}>
+              {isDeviceConnected ? 'Device Connected' : 'No Device'}
+            </span>
           </div>
           <div className="system-status">
-            <div className={`status-dot ${readyState === ReadyState.OPEN ? 'online' : 'offline'}`}></div>
-            <span>{readyState === ReadyState.OPEN ? 'Server Connected' : 'Offline'}</span>
+            <Server
+              size={18}
+              color={readyState === ReadyState.OPEN ? '#4ade80' : '#ef4444'}
+              style={{ marginRight: '6px' }}
+            />
+            <span style={{ color: readyState === ReadyState.OPEN ? '#4ade80' : '#ef4444' }}>
+              {readyState === ReadyState.OPEN ? 'Server Connected' : 'Offline'}
+            </span>
           </div>
         </div>
       </header>
@@ -421,10 +474,10 @@ const handleStopTest = async () => {
       <div className="dashboard-grid">
         {/* Panel 1: Controls */}
         <div className="dashboard-card control-panel">
-          <h2 className="card-title">Test Execution</h2>
+          {/* <h2 className="card-title">Test Execution</h2> */}
           {/* App Selector */}
           <div className="input-group mb-4">
-            <label className="input-label">Select Application Scope</label>
+            <label className="input-label">Select Application</label>
             <div className="select-wrapper">
               <select
                 className="text-input"
@@ -451,8 +504,8 @@ const handleStopTest = async () => {
           </div>
 
           <div className="input-group mt-2">
-             <label className="input-label">OR Select Existing APK</label>
-             <select
+            <label className="input-label">OR Select Existing APK</label>
+            <select
               className="text-input"
               value={selectedApk}
               onChange={(e) => { setSelectedApk(e.target.value); if (e.target.value) setApkUrl(''); }}
@@ -474,7 +527,7 @@ const handleStopTest = async () => {
               <Play size={18} fill="currentColor" />
               {isDownloading ? 'Downloading...' : (isRunning ? 'Running Tests...' : 'Start Automation')}
             </button>
-            
+
             {isRunning && (
               <button onClick={handleStopTest} className="run-button stop-button ml-2">
                 Stop
@@ -492,7 +545,12 @@ const handleStopTest = async () => {
           />
         </div>
 
-        {/* Panel 3: Logs */}
+        {/* Panel 3: Live Metrics  */}
+        {/* <div className="grid-item-chart">
+          <MetricsChart data={metrics} />
+        </div> */}
+
+        {/* Panel 4: Logs */}
         <div className="grid-item-logs">
           <LogConsole logs={logs} />
         </div>
