@@ -197,6 +197,10 @@ body {
   background-color: var(--status-red);
 }
 
+.clickable-module:hover {
+  background-color: #d3e3f8; /* Darker slate/gray for hover */
+}
+
 /* --- Cards General --- */
 .dashboard-card {
   background-color: var(--bg-card);

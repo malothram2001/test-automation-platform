@@ -69,16 +69,25 @@ const ModuleFlow = ({ modules, isRunning, onToggleModule }) => {
             icon = <AlertCircle size={16} />;
           }
 
+          // Interactive classes only when not running
+          const interactiveClass = !isRunning ? "clickable-module" : "";
+
           return (
-            <div key={idx} className={`module-item ${statusClass}`}>
+            <div key={idx} className={`module-item ${statusClass} ${interactiveClass}`}
+            onClick={() => !isRunning && onToggleModule(idx)}
+            style={{
+                cursor: !isRunning ? 'pointer' : 'default',
+              }}>
               {/* Show checkbox only if NOT running */}
               {!isRunning ? (
                 <input
                   type="checkbox"
                   checked={!!mod.isSelected}
+                  // Stop propagation so clicking checkbox doesn't trigger row click twice
+                  onClick={(e) => e.stopPropagation()} 
                   onChange={() => onToggleModule(idx)}
                   className="mr-2 cursor-pointer"
-                  style={{ marginRight: '8px' }}
+                  style={{ marginRight: '0px' }}
                 />
               ) : (
                 // Show status icon if running or if selected
@@ -127,7 +136,7 @@ const MetricsChart = ({ data }) => {
 };
 
 // --- COMPONENT: Log Console ---
-const LogConsole = ({ logs }) => {
+const LogConsole = ({ logs, statusMode = 'idle' }) => {
   const endRef = useRef(null);
   const [searchTerm, setSearchTerm] = useState('');
   const filteredLogs = logs.filter((log) => {
@@ -151,12 +160,65 @@ const LogConsole = ({ logs }) => {
     );
   };
 
+  // Styles for the status bar
+  const getBarStyle = () => {
+    const baseStyle = {
+      height: '4px',
+      flexGrow: 1,
+      margin: '0 15px',
+      borderRadius: '2px',
+      transition: 'all 0.3s ease',
+      opacity: statusMode === 'idle' ? 0.2 : 1,
+      backgroundColor: statusMode === 'idle' ? '#475569' : 'transparent',
+    };
+
+    if (statusMode === 'running') {
+      return {
+        ...baseStyle,
+        background: 'linear-gradient(90deg, #3b82f633 0%, #3b82f6 50%, #3b82f633 100%)',
+        backgroundSize: '200% 100%',
+        animation: 'gradientLoad 2s linear infinite',
+      };
+    } else if (statusMode === 'failure') {
+      return {
+        ...baseStyle,
+        backgroundColor: '#ef4444',
+        boxShadow: '0 0 8px #ef444466',
+        animation: 'blinkRed 1.5s infinite',
+      };
+    } else if (statusMode === 'success') {
+      return {
+        ...baseStyle,
+        backgroundColor: '#22c55e',
+        boxShadow: '0 0 8px #22c55e66',
+        animation: 'blinkGreen 1.5s infinite',
+      };
+    }
+    return baseStyle;
+  };
+
   return (
     <div className="log-console">
+      <style>{`
+        @keyframes gradientLoad {
+          0% { background-position: 100% 0; }
+          100% { background-position: -100% 0; }
+        }
+        @keyframes blinkRed {
+          0%, 100% { opacity: 1; box-shadow: 0 0 8px #ef444466; }
+          50% { opacity: 0.4; box-shadow: none; }
+        }
+        @keyframes blinkGreen {
+          0%, 100% { opacity: 1; box-shadow: 0 0 8px #22c55e66; }
+          50% { opacity: 0.4; box-shadow: none; }
+        }
+      `}</style>
+
       <div className="console-header-row">
         <h3 className="console-header">
           <Terminal size={14} /> LIVE LOGS CONSOLE
         </h3>
+        <div style={getBarStyle()} />
         {/* Search bar */}
         <div className="log-search">
           <input
@@ -190,18 +252,35 @@ const LogConsole = ({ logs }) => {
 
 // --- MAIN APP COMPONENT ---
 function App() {
-  const [apkUrl, setApkUrl] = useState('');
-  const [isRunning, setIsRunning] = useState(false);
+  const loadState = (key, fallback) => {
+    try {
+      const saved = sessionStorage.getItem(key);
+      return saved ? JSON.parse(saved) : fallback;
+    } catch (e) {
+      return fallback;
+    }
+  };
+  const [apkUrl, setApkUrl] = useState(() => loadState('apkUrl', ''));
+  const [isRunning, setIsRunning] = useState(() => loadState('isRunning', false));
   const [isDownloading, setIsDownloading] = useState(false);
-  const [logs, setLogs] = useState([]);
+  // const [logs, setLogs] = useState([]);
+  // Load logs, but limit history to prevent quota errors
+  const [logs, setLogs] = useState(() => loadState('logs', []));
   const [metrics, setMetrics] = useState([]);
   const [appIcon, setAppIcon] = useState(null);
   const [appTitle, setAppTitle] = useState('');
   const [isDeviceConnected, setIsDeviceConnected] = useState(false);
-  const [selectedAppKey, setSelectedAppKey] = useState('FARMER');
-  // Initialize modules based on default selection
+  const [appiumStatus, setAppiumStatus] = useState('stopped');
+  const [selectedAppKey, setSelectedAppKey] = useState(() => loadState('selectedAppKey', 'FARMER'));
+  // Track previous key to prevent module reset on refresh
+  const prevAppKeyRef = useRef(selectedAppKey);
+  // Initialize modules based on default selection or storage
   const [modules, setModules] = useState(() => {
-    return APP_VARIANTS['FARMER'].modules.map(m => ({
+    const saved = sessionStorage.getItem('modules');
+    if (saved) return JSON.parse(saved);
+    // Use the potentially loaded key, fallback to FARMER if invalid
+    const variant = APP_VARIANTS[selectedAppKey] || APP_VARIANTS['FARMER'];
+    return variant.modules.map(m => ({
       ...m,
       status: 'pending',
       isSelected: true
@@ -209,19 +288,54 @@ function App() {
   });
 
   const [existingApks, setExistingApks] = useState([]);
-  const [selectedApk, setSelectedApk] = useState('');
+  const [selectedApk, setSelectedApk] = useState(() => loadState('selectedApk', ''));
   const reportWindowRef = useRef(null);
   const [hasOpenedReport, setHasOpenedReport] = useState(false);
 
+  // Save specific state to sessionStorage whenever it changes
+  useEffect(() => {
+    sessionStorage.setItem('apkUrl', JSON.stringify(apkUrl));
+    sessionStorage.setItem('isRunning', JSON.stringify(isRunning));
+    sessionStorage.setItem('selectedAppKey', JSON.stringify(selectedAppKey));
+    sessionStorage.setItem('modules', JSON.stringify(modules));
+    sessionStorage.setItem('selectedApk', JSON.stringify(selectedApk));
+    // Limit persisted logs to last 200 to avoid storage quota limits
+    sessionStorage.setItem('logs', JSON.stringify(logs.slice(-200)));
+  }, [apkUrl, isRunning, selectedAppKey, modules, selectedApk, logs]);
+
+  // Helper to determine status bar state
+  const getConsoleStatus = () => {
+    if (isRunning) return 'running';
+    
+    const active = modules.filter(m => m.isSelected);
+    // If no modules or all correspond to 'pending', we are idle/start
+    if (active.length === 0) return 'idle';
+
+    // If any failed -> failure
+    if (active.some(m => m.status === 'failed')) return 'failure';
+
+    // This handles cases where some modules might be skipped (staying 'pending')
+    const hasCompleted = active.some(m => m.status === 'completed' || m.status === 'passed');
+    const hasRunning = active.some(m => m.status === 'running');
+
+    // If all completed -> success
+    if (hasCompleted && !hasRunning) return 'success';
+    
+    return 'idle';
+  };
+
   // --- Update modules when App Type changes ---
   useEffect(() => {
-    // if (!isRunning) {
-    setModules(APP_VARIANTS[selectedAppKey].modules.map(m => ({
-      ...m,
-      status: 'pending',
-      isSelected: true
-    })));
-    // }
+    // Only reset modules if the user ACTUALLY changed the dropdown
+    // NOT on initial render/refresh (where prev == current)
+    if (prevAppKeyRef.current !== selectedAppKey) {
+      setModules(APP_VARIANTS[selectedAppKey].modules.map(m => ({
+        ...m,
+        status: 'pending',
+        isSelected: true
+      })));
+      prevAppKeyRef.current = selectedAppKey;
+    }
   }, [selectedAppKey]);
 
   const toggleModuleSelection = (index) => {
@@ -320,6 +434,11 @@ function App() {
   };
 
   const handleRunTest = async () => {
+    if (appiumStatus !== 'running') {
+      alert("Appium Server is not running. Please start the server using the 'Start Server' button.");
+      return;
+    }
+
     if (!apkUrl && !selectedApk) {
       alert("Please enter a Google Drive URL or select an existing APK!");
       return;
@@ -401,6 +520,51 @@ function App() {
     handleIncomingData({ type: 'LOG', payload: { message: 'Test stopped by user.', status: 'FAILED' } });
   };
 
+   // --- NEW: Reset Handler ---
+  const handleReset = () => {
+    // 1. Reset UI State
+    setIsRunning(false);
+    setApkUrl('');
+    setSelectedApk('');
+    setLogs([]);
+    // Reset module statuses to pending, keep selection
+    setModules(prev => prev.map(m => ({ ...m, status: 'pending' })));
+
+    // 2. Clear Session Storage
+    sessionStorage.removeItem('apkUrl');
+    sessionStorage.removeItem('selectedApk');
+    sessionStorage.removeItem('logs');
+    sessionStorage.removeItem('modules');
+    sessionStorage.removeItem('isRunning');
+  };
+
+  // --- NEW: Appium Handlers ---
+  const checkAppiumStatus = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/appium/status`);
+      const data = await res.json();
+      setAppiumStatus(data.status);
+    } catch (e) {
+      setAppiumStatus('stopped');
+    }
+  };
+
+  const toggleAppium = async () => {
+    try {
+      if (appiumStatus === 'running') {
+        await fetch(`${API_URL}/api/appium/stop`, { method: 'POST' });
+        handleIncomingData({ type: 'LOG', payload: { message: 'Stopping Appium Server...', status: 'INFO' } });
+      } else {
+        await fetch(`${API_URL}/api/appium/start`, { method: 'POST' });
+        handleIncomingData({ type: 'LOG', payload: { message: 'Starting Appium Server...', status: 'INFO' } });
+      }
+      // Give it a moment to change state then check
+      setTimeout(checkAppiumStatus, 1000);
+    } catch (error) {
+      console.error("Failed to toggle Appium", error);
+    }
+  };
+
   // Poll device & Load APKs
   useEffect(() => {
     const checkDevice = async () => {
@@ -421,7 +585,11 @@ function App() {
 
     loadApks();
     checkDevice();
-    const id = setInterval(checkDevice, 5000);
+    checkAppiumStatus(); 
+    const id = setInterval(() => {
+      checkDevice();
+      checkAppiumStatus();
+    }, 5000);
     return () => clearInterval(id);
   }, []);
 
@@ -468,6 +636,16 @@ function App() {
               {readyState === ReadyState.OPEN ? 'Server Connected' : 'Offline'}
             </span>
           </div>
+          <div className="system-status">
+            <Activity
+              size={18}
+              color={appiumStatus === 'running' ? '#4ade80' : '#94a3b8'}
+              style={{ marginRight: '6px' }}
+            />
+            <span style={{ color: appiumStatus === 'running' ? '#4ade80' : '#94a3b8' }}>
+              Appium {appiumStatus === 'running' ? 'Active' : 'Off'}
+            </span>
+          </div>
         </div>
       </header>
 
@@ -475,6 +653,43 @@ function App() {
         {/* Panel 1: Controls */}
         <div className="dashboard-card control-panel">
           {/* <h2 className="card-title">Test Execution</h2> */}
+          {/* --- NEW: Appium Control Row --- */}
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            paddingBottom: '15px', 
+            marginBottom: '15px',
+            borderBottom: '1px solid #334155' 
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ 
+                width: '10px', 
+                height: '10px', 
+                borderRadius: '50%', 
+                backgroundColor: appiumStatus === 'running' ? '#4ade80' : '#ef4444',
+                boxShadow: appiumStatus === 'running' ? '0 0 8px #4ade80' : 'none'
+              }}></div>
+              <span className="input-label" style={{ marginBottom: 0 }}>Appium Server</span>
+            </div>
+            
+            <button
+              onClick={toggleAppium}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '6px',
+                border: '1px solid #CBD5E1',
+                backgroundColor: appiumStatus === 'running' ? '#1e293b' : '#0f172a',
+                color: appiumStatus === 'running' ? '#ef4444' : '#4ade80',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: '600',
+                transition: 'all 0.2s'
+              }}
+            >
+              {appiumStatus === 'running' ? 'Stop Server' : 'Start Server'}
+            </button>
+          </div>
           {/* App Selector */}
           <div className="input-group mb-4">
             <label className="input-label">Select Application</label>
@@ -533,6 +748,21 @@ function App() {
                 Stop
               </button>
             )}
+
+            {/* --- NEW: Reset / New Test Button --- */}
+            {!isRunning && logs.length > 0 && (
+              <button
+                onClick={handleReset}
+                className="run-button ml-2"
+                style={{
+                  backgroundColor: '#334155',
+                  color: '#e2e8f0',
+                  border: '1px solid #475569'
+                }}
+              >
+                Start New Test
+              </button>
+            )}
           </div>
         </div>
 
@@ -552,7 +782,9 @@ function App() {
 
         {/* Panel 4: Logs */}
         <div className="grid-item-logs">
-          <LogConsole logs={logs} />
+          <LogConsole logs={logs}
+          statusMode={getConsoleStatus()} 
+          />
         </div>
       </div>
     </div>

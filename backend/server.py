@@ -1,6 +1,7 @@
 # server.py
 import os
 import sys
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -21,8 +22,42 @@ if BASE_DIR not in sys.path:
 from tests.test_runner import run_tests_and_get_suggestions, stop_current_tests
 # from gdrive_loader import download_apk, 
 
+# --- NEW: Cleanup Handler (Lifespan) ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Run on startup
+    yield
+    # Run on shutdown (Ctrl+C)
+    print("Shutting down: Cleaning up child processes...")
+    global _appium_proc, _allure_proc
+    
+    # Kill Appium
+    if _appium_proc is not None:
+        try:
+            print("Killing Appium...")
+            if os.name == 'nt':
+                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(_appium_proc.pid)], 
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                 _appium_proc.kill()
+        except Exception as e:
+            print(f"Error killing Appium: {e}")
 
-app = FastAPI()
+    # Kill Allure
+    if _allure_proc is not None:
+        try:
+            print("Killing Allure...")
+            if os.name == 'nt':
+                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(_allure_proc.pid)],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                 _allure_proc.kill()
+        except Exception:
+            pass
+
+app = FastAPI(lifespan=lifespan)
+
+# app = FastAPI()
 
 # CORS: allow your React dev server to call this API
 app.add_middleware(
@@ -51,6 +86,10 @@ app.mount("/allure-report", StaticFiles(directory=ALLURE_REPORT_DIR, html=True),
 
 _allure_proc: subprocess.Popen | None = None
 _allure_port: int | None = None
+
+# --- NEW: Appium Globals ---
+_appium_proc: subprocess.Popen | None = None
+APPIUM_PORT = 4723
 
 ALLURE_CMD = r"C:\Users\Pramo\scoop\shims\allure"
 
@@ -424,5 +463,66 @@ async def stop_test():
     else:
         return {"status": "no-process"}
     
+# --- NEW: Appium Endpoints ---
+
+@app.get("/api/appium/status")
+async def appium_status():
+    """Check if Appium process is running."""
+    global _appium_proc
+    if _appium_proc is not None and _appium_proc.poll() is None:
+        return {"status": "running", "port": APPIUM_PORT}
+    return {"status": "stopped"}
+
+@app.post("/api/appium/start")
+async def appium_start():
+    """Start the Appium Server."""
+    global _appium_proc
+    
+    # 1. Check if already running via Python
+    if _appium_proc is not None and _appium_proc.poll() is None:
+        return {"status": "running", "message": "Appium is already running via backend."}
+
+    # 2. Check if port is locked (e.g. running from external terminal)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if s.connect_ex(('127.0.0.1', APPIUM_PORT)) == 0:
+             return {"status": "running", "message": f"Appium (or something) already active on port {APPIUM_PORT}"}
+
+    try:
+        # Start Appium. Assumes 'appium' is in your System PATH.
+        # On Windows, shell=True is often needed for npm binaries.
+        _appium_proc = subprocess.Popen(
+            ["appium", "-p", str(APPIUM_PORT)],
+            shell=True,
+            stdout=subprocess.DEVNULL, # Or redirect to a log file
+            stderr=subprocess.DEVNULL
+        )
+        return {"status": "started", "message": f"Appium started on port {APPIUM_PORT}"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/api/appium/stop")
+async def appium_stop():
+    """Stop the Appium Server."""
+    global _appium_proc
+    if _appium_proc is not None:
+        # On Windows with shell=True, terminate/kill only kills the shell (cmd.exe), not Appium (node.exe).
+        # We need to strictly kill the process tree.
+        if os.name == 'nt':
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(_appium_proc.pid)],
+                    stdout=subprocess.DEVNULL, 
+                    stderr=subprocess.DEVNULL
+                )
+            except Exception as e:
+                print(f"Error executing taskkill: {e}")
+                # Fallback if taskkill fails for some reason
+                _appium_proc.kill()
+        
+        _appium_proc = None
+        return {"status": "stopped"}
+    
+    return {"status": "not_running"}
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
