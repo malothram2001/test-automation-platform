@@ -52,6 +52,47 @@ def _ensure_clean_allure_dirs(project_root: str) -> None:
     if os.path.isdir(report_path):
         shutil.rmtree(report_path, ignore_errors=True)
 
+def generate_report(project_root: Optional[str] = None) -> None:
+    """
+    Generates and opens Allure HTML report.
+    Can be called manually or automatically.
+    """
+    if project_root is None:
+        project_root = os.path.dirname(os.path.dirname(__file__))
+
+    # improved command resolution
+    allure_cmd = "allure"
+    # specific check for user's scoop path if regular allure isn't found
+    scoop_path = r"C:\Users\Pramo\scoop\shims\allure.cmd" 
+    if os.path.exists(scoop_path):
+        allure_cmd = scoop_path
+    elif shutil.which("allure.cmd"):
+        allure_cmd = "allure.cmd"
+    
+    try:
+        send_log("Generating Allure HTML report...", "INFO")
+        # 1. Generate
+        subprocess.run(
+            [allure_cmd, "generate", RESULTS_DIR, "-o", REPORT_DIR, "--clean"],
+            cwd=project_root,
+            check=True,
+            shell=True 
+        )
+        send_log("Allure HTML report generated.", "SUCCESS")
+        
+        # 2. Open
+        send_log("Opening Allure report in browser...", "INFO")
+        subprocess.Popen(
+            [allure_cmd, "open", REPORT_DIR],
+            cwd=project_root,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            shell=True
+        )
+    except Exception as e:
+        send_log(f"Failed to generate/open report: {e}", "FAILED")
+        print(f"Report Generation Error: {e}")
+        
 def _generate_and_open_allure_report(project_root: str) -> None:
     """
     Generates and opens Allure HTML report.
@@ -367,6 +408,7 @@ def run_tests_and_get_suggestions(
     
     # Don't generate report if stopped mid-way by user
     if STOP_FLAG:
+        send_log("Tests stopped by user. Partial report available on request.", "WARNING")
         return
 
     if overall_ok:
@@ -375,7 +417,7 @@ def run_tests_and_get_suggestions(
         send_log("Some modules failed", "FAILED")
 
     # 3. Generate and Open Report
-    _generate_and_open_allure_report(project_root)
+    generate_report(project_root)
     # notify_allure_open()
 
 if __name__ == "__main__":

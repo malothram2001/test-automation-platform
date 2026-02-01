@@ -19,7 +19,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(__file__))  # root: f:\projects\test-
 if BASE_DIR not in sys.path:
     sys.path.append(BASE_DIR)
 
-from tests.test_runner import run_tests_and_get_suggestions, stop_current_tests
+from tests.test_runner import run_tests_and_get_suggestions, stop_current_tests, generate_report
 # from gdrive_loader import download_apk, 
 
 # --- NEW: Cleanup Handler (Lifespan) ---
@@ -523,6 +523,18 @@ async def appium_stop():
         return {"status": "stopped"}
     
     return {"status": "not_running"}
+
+@app.post("/api/generate-report")
+async def api_generate_report():
+    """Manually trigger report generation."""
+    try:
+        # Run in thread pool to avoid blocking
+        import threading
+        t = threading.Thread(target=generate_report)
+        t.start()
+        return {"status": "ok", "message": "Report generation started"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

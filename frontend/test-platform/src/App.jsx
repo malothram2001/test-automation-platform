@@ -271,6 +271,7 @@ function App() {
   const [appTitle, setAppTitle] = useState('');
   const [isDeviceConnected, setIsDeviceConnected] = useState(false);
   const [appiumStatus, setAppiumStatus] = useState('stopped');
+  const [showStopPopup, setShowStopPopup] = useState(false);
   const [selectedAppKey, setSelectedAppKey] = useState(() => loadState('selectedAppKey', 'FARMER'));
   // Track previous key to prevent module reset on refresh
   const prevAppKeyRef = useRef(selectedAppKey);
@@ -518,6 +519,17 @@ function App() {
     setIsRunning(false);
     setIsDownloading(false);
     handleIncomingData({ type: 'LOG', payload: { message: 'Test stopped by user.', status: 'FAILED' } });
+    setShowStopPopup(true);
+  };
+
+    const handleGenerateReport = async () => {
+    setShowStopPopup(false);
+    try {
+       await fetch(`${API_URL}/api/generate-report`, { method: 'POST' });
+       handleIncomingData({ type: 'LOG', payload: { message: 'Generating partial report...', status: 'INFO' } });
+    } catch (e) {
+       console.error("Failed to generate report", e);
+    }
   };
 
    // --- NEW: Reset Handler ---
@@ -648,6 +660,45 @@ function App() {
           </div>
         </div>
       </header>
+
+      {showStopPopup && (
+        <div style={{
+          position: 'fixed', top:'30%', left: 0, right: 0, 
+          // backgroundColor: 'rgba(0,0,0,0.7)',
+          // height: '50vh',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div className="dashboard-card" style={{ width: '400px', padding: '24px', border: '1px solid #ebebeb' }}>
+            <h3 style={{ marginTop: 0, color: '#333', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <AlertCircle color="#f59e0b" /> Test Stopped
+            </h3>
+            <p style={{ color: '#94a3b8', margin: '16px 0 24px 0' }}>
+              Tests were stopped manually. Do you want to generate and view the partial report for the executed tests?
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button
+                onClick={() => setShowStopPopup(false)}
+                style={{
+                  padding: '8px 16px', borderRadius: '6px', cursor: 'pointer',
+                  backgroundColor: 'transparent', border: '1px solid #475569', color: '#333'
+                }}
+              >
+                No, Close
+              </button>
+              <button
+                onClick={handleGenerateReport}
+                style={{
+                  padding: '8px 16px', borderRadius: '6px', cursor: 'pointer',
+                  backgroundColor: '#3b82f6', border: 'none', color: 'white', fontWeight: '500'
+                }}
+              >
+                Yes, Generate Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="dashboard-grid">
         {/* Panel 1: Controls */}
