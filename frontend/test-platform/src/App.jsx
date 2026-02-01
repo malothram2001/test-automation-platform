@@ -169,7 +169,7 @@ const LogConsole = ({ logs, statusMode = 'idle' }) => {
       borderRadius: '2px',
       transition: 'all 0.3s ease',
       opacity: statusMode === 'idle' ? 0.2 : 1,
-      backgroundColor: statusMode === 'idle' ? '#475569' : 'transparent',
+      backgroundColor: statusMode === 'idle' ? '#475569' : '#fff',
     };
 
     if (statusMode === 'running') {
