@@ -3,6 +3,7 @@ import allure
 import pytest
 import json
 import os
+import ocr_utils  # Assuming this is the file where OCR helper functions are defined
 import subprocess  # Required for ADB commands
 from appium.webdriver.common.appiumby import AppiumBy
 from selenium.webdriver.support.ui import WebDriverWait
@@ -227,9 +228,9 @@ class TestLogin:
                 with allure.step("3a. Select Email Tab"):
                     self.smart_click(driver, login_xpaths.get("tab_email_login"), login_coords.get("tab_email_login"), "Email Tab")
                 with allure.step("3b. Enter Email"):
-                    self.smart_send_keys(driver, login_xpaths.get("email_input"), "testteam@yopmail.com", "Email Input")
+                    self.smart_send_keys(driver, login_xpaths.get("email_input"), "fa1@yopmail.com", "Email Input")
                 with allure.step("3c. Enter Password"):
-                    self.smart_send_keys(driver, login_xpaths.get("password_input"), "Test@2025", "Password Input")
+                    self.smart_send_keys(driver, login_xpaths.get("password_input"), "Fa1@2025", "Password Input")
                 with allure.step("3d. Click Submit"):
                     key = "submit_login_button"
                     if not self.smart_click(driver, login_xpaths.get(key), login_coords.get(key), key):
@@ -281,46 +282,78 @@ class TestLogin:
 
             with allure.step("9. Enter Farmer Mobile"):
                 key = "farmer_mobile_input"
-                if not self.smart_send_keys(driver, farmer_xpaths.get(key), "9876543210", "Farmer Mobile Input", farmer_coords.get(key)):
+                if not self.smart_send_keys(driver, farmer_xpaths.get(key), "1231231312", "Farmer Mobile Input", farmer_coords.get(key)):
                     raise Exception("Failed to enter Farmer Mobile")
 
-            # 10. Select Business Unit - UPDATED WITH EXPLICIT SCROLL
-            # with allure.step("10. Select Business Unit"):
-            #     dropdown_key = "business_unit_dropdown"
-            #     option_key = "business_unit_option_1"
+            # UPDATED STEP 10: Select Business Unit (Based on Code 2)
+            # ---------------------------------------------------------
+            with allure.step("10. Select Business Unit"):
+                dropdown_key = "business_unit_dropdown"
+                option_key = "business_unit_option_1"
                 
-            #     # --- ADDED: Explicitly scroll to find the input first ---
-            #     print("   -> Explicitly scrolling to find Business Unit dropdown...")
-            #     self.scroll_to_find(driver, farmer_xpaths.get(dropdown_key))
+                print("   -> Explicitly scrolling to find Business Unit dropdown...")
+                self.scroll_to_find(driver, farmer_xpaths.get(dropdown_key))
                 
-            #     success = self.smart_select_dropdown(
-            #         driver,
-            #         farmer_xpaths.get(dropdown_key),
-            #         farmer_xpaths.get(option_key),
-            #         farmer_coords.get(dropdown_key),
-            #         farmer_coords.get(option_key),
-            #         "Business Unit"
-            #     )
-            #     if not success: raise Exception("Failed to select Business Unit")
+                # Click Dropdown
+                if not self.smart_click(driver, farmer_xpaths.get(dropdown_key), farmer_coords.get(dropdown_key), "Business Unit Dropdown"):
+                    raise Exception("Failed to open Business Unit dropdown")
+                
+                time.sleep(2) # Wait for animation
 
-            # 11. Select Field Agent - UPDATED WITH EXPLICIT SCROLL
+                # Click Option (Agriculture)
+                if not self.smart_click(driver, farmer_xpaths.get(option_key), farmer_coords.get(option_key), "Business Unit Option"):
+                    raise Exception("Failed to select Business Unit Option")
+
+            # ---------------------------------------------------------
+            # UPDATED STEP 11: Select Field Agent (Based on Code 2 Logic)
+            # ---------------------------------------------------------
             with allure.step("11. Select Field Agent"):
                 dropdown_key = "field_agent_dropdown"
-                option_key = "field_agent_option_1" 
+                option_key = "field_agent_option_1" # FA1
                 
-                # --- ADDED: Explicitly scroll to find the input first ---
                 print("   -> Explicitly scrolling to find Field Agent dropdown...")
                 self.scroll_to_find(driver, farmer_xpaths.get(dropdown_key))
 
-                success = self.smart_select_dropdown(
-                    driver,
-                    farmer_xpaths.get(dropdown_key),
-                    farmer_xpaths.get(option_key),
-                    farmer_coords.get(dropdown_key),
-                    farmer_coords.get(option_key),
-                    "Field Agent"
-                )
-                if not success: raise Exception("Failed to select Field Agent")
+                # 1. Open Dropdown
+                if not self.smart_click(driver, farmer_xpaths.get(dropdown_key), farmer_coords.get(dropdown_key), "Field Agent Dropdown"):
+                    raise Exception("Failed to open Field Agent dropdown")
+                
+                time.sleep(2)
+
+                # 2. Select Option (Click 1)
+                print(f"   -> Selecting {option_key} (Click 1)...")
+                if not self.smart_click(driver, farmer_xpaths.get(option_key), farmer_coords.get(option_key), "Field Agent Option (1st Click)"):
+                    raise Exception("Failed to select Field Agent Option")
+                
+                time.sleep(1)
+
+                # 3. Confirm Selection (Click 2 - As per Code 2)
+                print(f"   -> Confirming {option_key} (Click 2)...")
+                self.smart_click(driver, farmer_xpaths.get(option_key), farmer_coords.get(option_key), "Field Agent Option (2nd Click)")
+                
+                time.sleep(3) # Allow UI to update
+
+                # 4. Tap Outside to Close
+                print("   -> Tapping outside (100, 100) to close dropdown...")
+                self.tap_at_coordinates(driver, 100, 100)
+                time.sleep(2)
+
+                # 5. Verification (Optional but recommended based on Code 2)
+                try:
+                    element = driver.find_element(AppiumBy.XPATH, farmer_xpaths.get(dropdown_key))
+                    if "FA1" not in element.text and "Field Agent" in element.text:
+                         print(f"Warning: Field Agent might not have been selected. Current text: {element.text}")
+                except:
+                    pass
+
+            with allure.step("12. Click Submit Farmer"):
+                key = "submit_farmer_button"
+                if not self.smart_click(driver, farmer_xpaths.get(key), farmer_coords.get(key), "Submit Farmer Button"):
+                    raise Exception("Failed to click Submit Farmer button")
+            
+            allure.attach("Farmer Created Successfully", name="Result", attachment_type=allure.attachment_type.TEXT)
+            test_flow_steps.append({"step": "Farmer Created", "status": "Success"})
+            print("Farmer creation flow completed!")
 
             with allure.step("12. Click Submit Farmer"):
                 key = "submit_farmer_button"
@@ -331,6 +364,124 @@ class TestLogin:
             allure.attach("Farmer Created Successfully", name="Result", attachment_type=allure.attachment_type.TEXT)
             test_flow_steps.append({"step": "Farmer Created", "status": "Success"})
             print("Farmer creation flow completed!")
+            time.sleep(5)
+
+                # ========================================================
+            # PART 3: ADD FARM FLOW (New Logic)
+            # ========================================================
+            
+            print("\n--- STARTING ADD FARM FLOW ---\n")
+
+            with allure.step("13. Click Draw on Map (Initiate Farm)"):
+                # As per prompt: "here after submit -- click on draw on map"
+                key = "draw_on_map_initial"
+                # Using None for coords as we are relying on the injected XPaths
+                if not self.smart_click(driver, farmer_xpaths.get(key), None, "Draw on Map (Initial)"):
+                    raise Exception("Failed to click initial Draw on Map button")
+
+            with allure.step("14. Enter Farm Name"):
+                key = "farm_name_input"
+                if not self.smart_send_keys(driver, farmer_xpaths.get(key), "My New Farm", "Farm Name Input"):
+                    raise Exception("Failed to enter Farm Name")
+
+            with allure.step("15. Submit Farm Name"):
+                key = "farm_submit_button"
+                if not self.smart_click(driver, farmer_xpaths.get(key), None, "Farm Submit Button"):
+                    raise Exception("Failed to click Farm Submit")
+
+            # ========================================================
+            # PART 4: ADD CROP DETAILS
+            # ========================================================
+            
+            print("\n--- STARTING ADD CROP FLOW ---\n")
+            
+            with allure.step("16. Select Crop Name"):
+                # Click Dropdown
+                if not self.smart_click(driver, farmer_xpaths.get("crop_name_dropdown"), None, "Crop Name Dropdown"):
+                    raise Exception("Failed to click Crop Name Dropdown")
+                # Click Option
+                if not self.smart_click(driver, farmer_xpaths.get("crop_name_option"), None, "Crop Name Option (Black Gram)"):
+                    raise Exception("Failed to select Black Gram")
+
+            with allure.step("17. Select Crop Duration"):
+                if not self.smart_click(driver, farmer_xpaths.get("crop_duration_dropdown"), None, "Crop Duration Dropdown"):
+                    raise Exception("Failed to click Duration Dropdown")
+                if not self.smart_click(driver, farmer_xpaths.get("crop_duration_option"), None, "Crop Duration Option"):
+                    raise Exception("Failed to select Short Duration")
+
+            with allure.step("18. Select Sowing Type"):
+                if not self.smart_click(driver, farmer_xpaths.get("sowing_type_dropdown"), None, "Sowing Type Dropdown"):
+                    raise Exception("Failed to click Sowing Type Dropdown")
+                if not self.smart_click(driver, farmer_xpaths.get("sowing_type_option"), None, "Sowing Type Option"):
+                    raise Exception("Failed to select Direct Sowing")
+
+            with allure.step("19. Select Dates"):
+                # Open Sowing Date Picker
+                if not self.smart_click(driver, farmer_xpaths.get("sowing_date_picker"), None, "Sowing Date Picker"):
+                    raise Exception("Failed to click Sowing Date picker")
+                
+                # Wait for Calendar & Select Date
+                # Note: This is specific to the "03 March 2025" logic in your request
+                if not self.smart_click(driver, farmer_xpaths.get("calendar_date_select"), None, "Select Date in Calendar"):
+                    print("Warning: Specific date not found, attempting to pick default/today if available or fail.")
+                
+                # Click OK
+                if not self.smart_click(driver, farmer_xpaths.get("calendar_ok_button"), None, "Calendar OK Button"):
+                    raise Exception("Failed to click OK on calendar")
+                
+                # Assuming Harvest Date selection logic follows the same pattern or is auto-calculated.
+                # If manual selection is needed, repeat the logic above.
+
+            with allure.step("20. Submit Crop Details"):
+                key = "crop_submit_button"
+                if not self.smart_click(driver, farmer_xpaths.get(key), None, "Crop Submit Button"):
+                    raise Exception("Failed to click Crop Submit")
+
+            # ========================================================
+            # PART 5: DRAW BOUNDARY (Polygon)
+            # ========================================================
+            
+            print("\n--- STARTING BOUNDARY DRAWING ---\n")
+
+            with allure.step("21. Click Add Boundary"):
+                # Prompt: "then click on add bounday map will vissible"
+                # If the button is "Draw on map" again, update the key below
+                key = "add_boundary_button" 
+                # Fallback to the initial draw button if 'Add Boundary' isn't the text
+                xpath = farmer_xpaths.get(key) or farmer_xpaths.get("draw_on_map_initial")
+                
+                if not self.smart_click(driver, xpath, None, "Add Boundary Button"):
+                    raise Exception("Failed to click Add Boundary button")
+
+            with allure.step("22. Draw Polygon on Map"):
+                print("Waiting for map to load...")
+                time.sleep(5) # Wait for map tiles
+
+                # Define the polygon coordinates (screen relative)
+                # Ensure these coords are valid for your device screen size
+                polygon_coords = [(400, 800), (600, 1000), (800, 900), (700, 700), (400, 800)]
+                
+                actions = ActionBuilder(driver)
+                p = PointerInput(interaction.POINTER_TOUCH, "finger")
+                
+                for idx, (x, y) in enumerate(polygon_coords):
+                    print(f"Drawing point {idx+1} at ({x}, {y})...")
+                    actions.pointer_action.move_to_location(x, y)
+                    actions.pointer_action.pointer_down()
+                    actions.pointer_action.pause(0.5)
+                    actions.pointer_action.pointer_up()
+                    actions.perform()
+                    time.sleep(0.5)
+
+            with allure.step("23. Save Boundary"):
+                key = "save_boundary_button"
+                if not self.smart_click(driver, farmer_xpaths.get(key), None, "Save Boundary Button"):
+                    raise Exception("Failed to click Save & Approve")
+
+            # Final Success
+            allure.attach("Farm and Crop Added Successfully", name="Final_Result", attachment_type=allure.attachment_type.TEXT)
+            test_flow_steps.append({"step": "Farm & Boundary Added", "status": "Success"})
+            time.sleep(5)
 
         except Exception as e:
             try: allure.attach(driver.get_screenshot_as_png(), name="Failure_Screenshot", attachment_type=allure.attachment_type.PNG)
@@ -341,6 +492,9 @@ class TestLogin:
             os.makedirs("test-flows", exist_ok=True)
             with open("test-flows/farmer_flow_success.json", "w") as f:
                 json.dump(test_flow_steps, f, indent=4)
+
+
+                
 
         # try:
         #     with allure.step("1. Next button on language selection screen"):
