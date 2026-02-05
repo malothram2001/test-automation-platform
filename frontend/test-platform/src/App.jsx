@@ -24,7 +24,7 @@ const APP_VARIANTS = {
     label: "Krishivaas Client (Regular)",
     modules: [
       { name: 'Login', path: 'tests/test_cases/regular_client_test_cases/test_login_pytest.py' },
-      { name: 'Add Farmer', path: 'tests/client/test_marketplace.py' },
+      { name: 'Add Farmer', path: 'tests/test_cases/regular_client_test_cases/test_onboarding_pytest.py' },
       { name: 'Add Agent Update', path: 'tests/client/test_cart.py' },
       { name: 'Crop health', path: 'tests/client/test_cart.py' },
     ]
@@ -437,7 +437,7 @@ function App() {
 
   const handleRunTest = async () => {
     if (appiumStatus !== 'running') {
-      alert("Appium Server is not running. Please start the server using the 'Start Server' button.");
+      alert("Appium Server is not running.");
       return;
     }
 
@@ -449,6 +449,9 @@ function App() {
     const testsToRun = modules
       .filter(m => m.isSelected)
       .map(m => ({ name: m.name, path: m.path }));
+
+    setIsRunning(true);
+    setLogs([]);
 
     if (testsToRun.length === 0) {
       alert("Please select at least one module to run.");
@@ -472,10 +475,11 @@ function App() {
     });
 
     try {
-      // --- NEW: Send app_type in payload ---
       const payload = {
         tests_to_run: testsToRun,
-        app_type: APP_VARIANTS[selectedAppKey].id
+        app_type: APP_VARIANTS[selectedAppKey].id,
+        // CRITICAL: We tell the backend to run these as a single session
+        session_mode: "continuous" 
       };
 
       let endpoint = selectedApk ? '/start-test-existing' : '/start-test';

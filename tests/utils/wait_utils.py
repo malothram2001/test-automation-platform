@@ -6,6 +6,8 @@ from utils.ocr_utils import click_element_by_ocr_text
 from selenium.common.exceptions import NoSuchElementException
 from appium.webdriver.common.appiumby import AppiumBy
 import allure
+from tests.utils.touch_utils import perform_scroll
+
 # --- NEW IMPORTS for the modern W3C Actions API ---
 from selenium.webdriver.common.actions.action_builder import ActionBuilder
 
@@ -122,6 +124,28 @@ def scroll_and_click_by_text_robust(driver, text_to_find, max_swipes=5):
 
     print(f"Failed to find or click '{text_to_find}' after {max_swipes} swipes.")
     return False
+
+def scroll_to_find(driver, xpath, max_scrolls=3):
+    """
+    Tries to find an element via XPath. 
+    If not found, scrolls and tries again up to max_scrolls.
+    """
+    if not xpath: 
+        return None
+
+    for i in range(max_scrolls + 1):
+        try:
+            element = WebDriverWait(driver, 1).until(
+                EC.visibility_of_element_located((AppiumBy.XPATH, xpath))
+            )
+            return element # Found it!
+        except:
+            if i < max_scrolls:
+                print(f"   -> Element not visible yet. Scrolling ({i+1}/{max_scrolls})...")
+                perform_scroll(driver)
+            else:
+                pass
+    return None
 
 def scroll_and_tap_by_text(driver, text_to_find, max_swipes=5):
     """

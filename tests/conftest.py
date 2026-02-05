@@ -16,6 +16,12 @@ def pytest_addoption(parser):
         help="Path to the APK file under test",
     )
 
+@pytest.fixture(scope="session") # Change from 'function' to 'session'
+def driver():
+    # ... your driver initialization code ...
+    yield driver
+    driver.quit()    
+
 @pytest.fixture(scope="session")
 def driver(request):
     """Appium driver fixture with APK path passed via --apk."""

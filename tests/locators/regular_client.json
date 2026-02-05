@@ -24,10 +24,7 @@
     "field_agent_dropdown": "//android.widget.Button[@content-desc=\"Field Agent dropdown\"]",
     "field_agent_option_1": "//android.widget.TextView[@text=\"FA1\"]",
     "submit_farmer_button": "//android.view.ViewGroup[@content-desc=\"Submit\"]",
-    "draw_on_map_button": "//android.widget.TextView[@text=\"Draw on map\"]"
-  },
-
-  "add_farm_screen": {
+    "draw_on_map_button": "//android.widget.TextView[@text=\"Draw on map\"]",
     "farm_submit_button": "//android.widget.TextView[@text=\"Submit\"]"
   },
 
@@ -36,7 +33,7 @@
     "crop_name_item": "//android.widget.TextView[@text=\"Black Gram\"]",
 
     "short_duration_button": "//android.view.ViewGroup[@content-desc=\"Short, 70 Days\"]",
-    "medium_duration_button": "//android.view.ViewGroup[@content-desc=\"Medium, 120 Days\"]",
+    "medium_duration_button": "//android.view.ViewGroup[@content-desc=\"Medium, 90 Days\"]",
     "long_duration_button": "//android.view.ViewGroup[@content-desc=\"Long, 150 Days\"]",
 
     "direct_sowing_button": "//android.widget.TextView[@text=\"Direct Sowing\"]",

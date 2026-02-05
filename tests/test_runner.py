@@ -63,7 +63,7 @@ def generate_report(project_root: Optional[str] = None) -> None:
     # improved command resolution
     allure_cmd = "allure"
     # specific check for user's scoop path if regular allure isn't found
-    scoop_path = r"C:\Users\Pramo\scoop\shims\allure.cmd" 
+    scoop_path = r"C:\Users\ram\scoop\shims\allure.cmd" 
     if os.path.exists(scoop_path):
         allure_cmd = scoop_path
     elif shutil.which("allure.cmd"):
@@ -323,6 +323,47 @@ def run_pytest_streaming(pytest_args: list[str], module_name: str, clean_allure:
             
 #     return resolved_tests
 
+def run_full_suite():
+    """
+    Runs the complete automation suite in the required order.
+    1. Login
+    2. Onboarding (Farmer, Farm, Crop, Boundary)
+    """
+    print("\n" + "="*50)
+    print("   KRISHIVAAS CONTINUOUS TEST RUNNER")
+    print("="*50 + "\n")
+    
+    # Ensure the root directory is in the python path for imports to work
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    # Define the order of files to run. 
+    # Make sure these file names match exactly what you have on your disk.
+    test_files = [
+        "tests/test_login_pytest.py",
+        "tests/test_onboarding_pytest.py"
+    ]
+    
+    # Check if files exist before running to avoid 'Script not found' errors
+    missing_files = [f for f in test_files if not os.path.exists(f)]
+    if missing_files:
+        print(f"ERROR: The following test scripts were not found: {missing_files}")
+        return
+
+    # Run pytest
+    # -v: verbose, -s: show print statements in console
+    exit_code = pytest.main(["-v", "-s", "--alluredir=allure-results"] + test_files)
+    
+    if exit_code == 0:
+        print("\nALL TESTS PASSED SUCCESSFULLY")
+    else:
+        print(f"\nTEST SUITE FINISHED WITH EXIT CODE: {exit_code}")
+
+if __name__ == "__main__":
+    run_full_suite()
+
+
 def run_tests_and_get_suggestions(
     apk_path: str, 
     tests_to_run: Optional[List[Dict[str, str]]] = None,
@@ -440,3 +481,6 @@ if __name__ == "__main__":
         app_type=app_type_arg,
         module_names=modules_arg
     )
+
+
+    
